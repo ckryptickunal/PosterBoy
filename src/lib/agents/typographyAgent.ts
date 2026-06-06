@@ -39,10 +39,17 @@ const TypographyTokensSchema = {
  */
 export async function runTypographyAgent(
   concept: Concept,
-  availableFonts: Array<{ name: string; familyName: string; category: string }>
+  availableFonts: Array<any>
 ): Promise<TypographyTokens> {
   // Guarantee a valid pool — never pass empty array to Gemini
-  const fontPool = (availableFonts && availableFonts.length > 0) ? availableFonts : DEFAULT_FONTS;
+  const rawPool = (availableFonts && availableFonts.length > 0) ? availableFonts : DEFAULT_FONTS;
+
+  // Normalize casing from SQLite snake_case fields
+  const fontPool = rawPool.map(f => ({
+    name:       f.name,
+    familyName: f.familyName || f.family_name || f.name,
+    category:   f.category || 'body'
+  }));
 
   const displayFonts = fontPool.filter(f => f.category === 'display');
   const bodyFonts = fontPool.filter(f => f.category === 'body');
