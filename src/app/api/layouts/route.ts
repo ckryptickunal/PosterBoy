@@ -34,22 +34,31 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { imageType, goal, style, score, layoutJson } = body as {
-      imageType: string;
-      goal: string;
-      style: string;
+    const { visualGenome, communicationGenome, layoutGenome, decisions, score, layoutJson } = body as {
+      visualGenome: any;
+      communicationGenome: any;
+      layoutGenome: any;
+      decisions: any[];
       score: number;
       layoutJson: string; // JSON string of coordinates elements
     };
 
-    if (!imageType || !goal || !style || !score || !layoutJson) {
-      return NextResponse.json({ success: false, error: 'Missing imageType, goal, style, score, or layoutJson.' }, { status: 400 });
+    if (!visualGenome || !communicationGenome || !layoutGenome || !decisions || !score || !layoutJson) {
+      return NextResponse.json({ success: false, error: 'Missing required genome, decisions, score, or layoutJson.' }, { status: 400 });
     }
 
     db.prepare(`
-      INSERT INTO layout_memory (image_type, goal, style, headline_strategy, score, layout_json, created_at)
+      INSERT INTO layout_memory (visual_genome_json, communication_genome_json, layout_genome_json, decisions_json, score, layout_json, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(imageType, goal, style, 'manual_override', score, layoutJson, new Date().toISOString());
+    `).run(
+      JSON.stringify(visualGenome),
+      JSON.stringify(communicationGenome),
+      JSON.stringify(layoutGenome),
+      JSON.stringify(decisions),
+      score,
+      layoutJson,
+      new Date().toISOString()
+    );
 
     return NextResponse.json({ success: true, message: 'Layout added to memory successfully.' });
 

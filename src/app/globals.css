@@ -1,51 +1,450 @@
-/* Import default Display & Body Google Fonts — must come first (CSS spec) */
-@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@300;400;500;600;700&family=Merriweather:ital,wght@0,300;0,400;0,700;1,300&family=Montserrat:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Roboto:wght@300;400;500;700&display=swap');
-
 @import "tailwindcss";
 
+/* Disable Tailwind v4 automatic dark mode — PosterBoy is always light */
+@custom-variant dark (&:where(.force-dark, .force-dark *));
+
+@theme inline {
+  --color-scheme: light;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   PosterBoy V4 — Alive Design System
+   ════════════════════════════════════════════════════════════════════════════
+   Anthropic Design Language + Emil Kowalski Animation Philosophy
+   
+   Color: Cloud Light #faf9f5 + Terracotta #d97757 + Slate Dark #131314
+   Typography: Inter (display) + Source Serif 4 (editorial body) + JetBrains Mono
+   Motion: Emil Kowalski custom curves — strong ease-out, 150-300ms UI transitions
+   Animation: Hardware-accelerated transforms + opacity only
+   ════════════════════════════════════════════════════════════════════════════ */
+
 :root {
-  --background: #09090b;
-  --foreground: #fafafa;
-  --card: #18181b;
-  --card-foreground: #fafafa;
-  --primary: #3b82f6;
-  --primary-foreground: #ffffff;
-  --border: #27272a;
+  /* ── Anthropic Swatch System ── */
+  --swatch-slate-dark: #131314;
+  --swatch-cloud-light: #faf9f5;
+  --swatch-cloud-medium: #e8e6dc;
+  --swatch-slate-light: #87867f;
+  --swatch-terracotta: #d97757;
+  --swatch-blue: #6a9bcc;
+  --swatch-sage: #788c5d;
+
+  /* ── Surfaces ── */
+  --bg-base: var(--swatch-cloud-light);
+  --surface-0: #f5f3eb;
+  --surface-1: #efede5;
+  --surface-2: #e8e6dc;
+  --surface-3: #dedad0;
+
+  /* ── Borders (muted, Anthropic-style) ── */
+  --border-subtle: rgba(19, 19, 20, 0.06);
+  --border-default: rgba(19, 19, 20, 0.12);
+  --border-strong: rgba(19, 19, 20, 0.2);
+
+  /* ── Text (Anthropic hierarchy) ── */
+  --text-primary: var(--swatch-slate-dark);
+  --text-secondary: #4a4946;
+  --text-muted: var(--swatch-slate-light);
+  --text-ghost: #b0aea5;
+
+  /* ── Accent (Terracotta — Anthropic's signature) ── */
+  --accent: var(--swatch-terracotta);
+  --accent-light: #e08a6a;
+  --accent-muted: rgba(217, 119, 87, 0.1);
+  --accent-glow: 0 0 20px rgba(217, 119, 87, 0.08);
+
+  /* ── Secondary Accents ── */
+  --accent-blue: var(--swatch-blue);
+  --accent-sage: var(--swatch-sage);
+
+  /* ── Status ── */
+  --status-success: var(--swatch-sage);
+  --status-warning: #b07d10;
+  --status-error: #c4553d;
+  --status-info: var(--swatch-blue);
+
+  /* ── Radius ── */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+  --radius-full: 9999px;
+
+  /* ── Shadows (warm, Anthropic-refined) ── */
+  --shadow-sm: 0 1px 3px rgba(19, 19, 20, 0.04), 0 1px 2px rgba(19, 19, 20, 0.03);
+  --shadow-md: 0 4px 16px rgba(19, 19, 20, 0.06), 0 2px 4px rgba(19, 19, 20, 0.03);
+  --shadow-lg: 0 12px 40px rgba(19, 19, 20, 0.08), 0 4px 12px rgba(19, 19, 20, 0.04);
+  --shadow-glow: 0 0 30px rgba(217, 119, 87, 0.06);
+
+  /* ── Anthropic Typography Scale (fluid, from their CSS) ── */
+  --text-xs: 0.75rem;          /* 12px — detail */
+  --text-sm: 0.875rem;         /* 14px — small body */
+  --text-base: 1rem;           /* 16px — paragraph-s min */
+  --text-md: 1.125rem;         /* 18px — paragraph-m min */
+  --text-lg: 1.25rem;          /* 20px — display-xs */
+  --text-xl: 1.5rem;           /* 24px — display-s */
+  --text-2xl: 2rem;            /* 32px — display-m */
+  --text-3xl: 3rem;            /* 48px — display-l */
+  --text-4xl: 4rem;            /* 64px — display-xl */
+  --text-5xl: 5rem;            /* 80px — display-xxl */
+
+  /* ── Fluid Font Sizes (Anthropic's exact clamp values) ── */
+  --font-display-xxl: clamp(3rem, 2.39rem + 2.61vw, 5rem);
+  --font-display-xl: clamp(2.5rem, 2.04rem + 1.96vw, 4rem);
+  --font-display-l: clamp(2rem, 1.69rem + 1.31vw, 3rem);
+  --font-display-m: clamp(1.75rem, 1.67rem + 0.33vw, 2rem);
+  --font-display-s: clamp(1.25rem, 1.17rem + 0.33vw, 1.5rem);
+  --font-display-xs: clamp(1.125rem, 1.09rem + 0.16vw, 1.25rem);
+  --font-paragraph-l: clamp(1.375rem, 1.34rem + 0.16vw, 1.5rem);
+  --font-paragraph-m: clamp(1.125rem, 1.09rem + 0.16vw, 1.25rem);
+  --font-paragraph-s: clamp(1rem, 0.96rem + 0.16vw, 1.125rem);
+
+  /* ── Spacing (generous, Anthropic-scale) ── */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --space-20: 80px;
+  --space-24: 96px;
+
+  /* ── Anthropic Nav Heights ── */
+  --nav-height: 4.25rem;
+
+  /* ── Z-index scale ── */
+  --z-base: 0;
+  --z-raised: 10;
+  --z-overlay: 20;
+  --z-modal: 40;
+  --z-toast: 50;
+  --z-max: 100;
+
+  /* ── Emil Kowalski Animation System ── */
+  /* Strong custom curves — built-in CSS easings are too weak */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-anthropic: cubic-bezier(0.77, 0, 0.175, 1);
+
+  /* Duration — UI animations stay under 300ms */
+  --duration-press: 100ms;
+  --duration-micro: 150ms;
+  --duration-fast: 200ms;
+  --duration-normal: 250ms;
+  --duration-moderate: 350ms;
+  --duration-slow: 500ms;
+  --duration-reveal: 700ms;
+}
+
+/* ── Base Styles ─────────────────────────────────────────────────────────── */
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  color-scheme: light;
 }
 
 body {
-  background-color: var(--background);
-  color: var(--foreground);
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background-color: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-source-serif), 'Source Serif 4', 'Georgia', serif;
+  font-size: var(--font-paragraph-s);
+  line-height: 1.6;
   overflow-x: hidden;
 }
 
-/* Custom Scrollbar */
+/* ── Anthropic Font Classes ── */
+.font-display {
+  font-family: var(--font-inter), 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+.font-editorial {
+  font-family: var(--font-source-serif), 'Source Serif 4', 'Georgia', serif;
+}
+
+.font-mono {
+  font-family: var(--font-geist-mono), 'JetBrains Mono', 'Fira Code', monospace;
+  font-feature-settings: 'tnum' 1;
+}
+
+/* ── Selection ── */
+::selection {
+  background: var(--accent-muted);
+  color: var(--text-primary);
+}
+
+/* ── Focus Ring — Emil: specify exact properties, avoid 'all' ── */
+:focus-visible {
+  outline: 1.5px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+  transition: outline-offset var(--duration-micro) var(--ease-out);
+}
+
+/* ── Scrollbar (near-invisible, Anthropic-style) ── */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 3px;
+  height: 3px;
 }
 ::-webkit-scrollbar-track {
-  background: #09090b;
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #27272a;
-  border-radius: 3px;
+  background: rgba(19, 19, 20, 0.1);
+  border-radius: var(--radius-full);
+  transition: background var(--duration-fast) var(--ease-out);
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #3f3f46;
+  background: rgba(19, 19, 20, 0.2);
 }
 
-/* Glassmorphism Styles */
-.glass-panel {
-  background: rgba(24, 24, 27, 0.7);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+/* Firefox scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(19, 19, 20, 0.1) transparent;
 }
 
-.glass-panel-glow {
-  background: rgba(24, 24, 27, 0.8);
-  backdrop-filter: blur(16px);
-  border: 1px solid rgba(59, 130, 246, 0.15);
-  box-shadow: 0 0 20px rgba(59, 130, 246, 0.05);
+/* ── Reduced Motion — per Emil: reduced ≠ none, keep opacity + color ── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    /* Keep opacity transitions for accessibility */
+  }
+}
+
+/* ── Hover media query — per Emil: only for pointer devices ── */
+@media (hover: hover) and (pointer: fine) {
+  .btn-ghost:hover {
+    background: var(--surface-0);
+    color: var(--text-primary);
+    border-color: var(--border-default);
+    transform: translateY(-1px);
+  }
+
+  .btn-primary:hover {
+    opacity: 0.92;
+    box-shadow: var(--shadow-glow);
+  }
+
+  .image-dropzone:hover {
+    border-color: var(--accent) !important;
+    background: var(--accent-muted) !important;
+  }
+
+  .log-entry:hover {
+    background: var(--surface-0);
+    border-radius: var(--radius-xs);
+  }
+
+  .evolution-card:hover {
+    box-shadow: var(--shadow-sm);
+    border-color: var(--border-default);
+  }
+
+  .canvas-frame:hover {
+    box-shadow: var(--shadow-lg), var(--shadow-glow);
+  }
+
+  .header-bar .btn-ghost:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Interactive Element Styles — Emil Kowalski Principles Applied
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* ── Accent pill badge (terracotta) — with subtle pulse ── */
+.badge-accent {
+  background: var(--accent-muted);
+  color: var(--accent);
+  border: 1px solid rgba(217, 119, 87, 0.18);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  padding: 3px 12px;
+  border-radius: var(--radius-full);
+  letter-spacing: 0.02em;
+  font-family: var(--font-inter), 'Inter', system-ui, sans-serif;
+  transition: transform var(--duration-micro) var(--ease-out),
+              box-shadow var(--duration-micro) var(--ease-out);
+}
+
+.badge-animated {
+  animation: badge-glow 3s ease-in-out infinite;
+}
+
+@keyframes badge-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(217, 119, 87, 0); }
+  50% { box-shadow: 0 0 12px rgba(217, 119, 87, 0.1); }
+}
+
+/* ── Status dot — with breathing animation ── */
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+.status-dot--active {
+  background: var(--accent);
+}
+.status-dot--idle {
+  background: var(--text-ghost);
+}
+.status-dot--error {
+  background: var(--status-error);
+}
+
+/* ── Monospace text ── */
+.mono {
+  font-family: var(--font-geist-mono), 'JetBrains Mono', 'Fira Code', monospace;
+  font-feature-settings: 'tnum' 1;
+  letter-spacing: -0.01em;
+}
+
+/* ── Ghost button — per Emil: transition specific properties, not 'all' ── */
+.btn-ghost {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 7px 14px;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  font-family: var(--font-inter), 'Inter', system-ui, sans-serif;
+  cursor: pointer;
+  /* Per Emil: specify exact properties, never use transition: all */
+  transition: background var(--duration-fast) var(--ease-out),
+              color var(--duration-fast) var(--ease-out),
+              border-color var(--duration-fast) var(--ease-out),
+              transform var(--duration-press) var(--ease-out),
+              box-shadow var(--duration-fast) var(--ease-out);
+}
+/* Per Emil: buttons must feel responsive — scale(0.97) on active */
+.btn-ghost:active {
+  transform: scale(0.97);
+}
+
+/* ── Primary button (Terracotta) — with press feedback ── */
+.btn-primary {
+  background: var(--accent);
+  color: var(--swatch-cloud-light);
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 10px 24px;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  font-family: var(--font-inter), 'Inter', system-ui, sans-serif;
+  cursor: pointer;
+  /* Per Emil: specify exact properties */
+  transition: opacity var(--duration-fast) var(--ease-out),
+              transform var(--duration-press) var(--ease-out),
+              box-shadow var(--duration-fast) var(--ease-out);
+}
+/* Per Emil: active scale for press feedback (100-160ms) */
+.btn-primary:active {
+  transform: scale(0.97);
+}
+.btn-primary:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* ── Textarea / Input field transitions ── */
+.textarea-field,
+.input-field {
+  transition: border-color var(--duration-fast) var(--ease-out),
+              box-shadow var(--duration-fast) var(--ease-out);
+}
+.textarea-field:focus,
+.input-field:focus {
+  border-color: var(--border-strong) !important;
+  box-shadow: 0 0 0 3px rgba(217, 119, 87, 0.06);
+}
+
+/* ── Elegant divider ── */
+.divider {
+  height: 1px;
+  background: var(--border-subtle);
+  border: none;
+  margin: 0;
+}
+
+/* ── Shimmer loading effect — smoother ── */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--surface-0) 25%,
+    var(--surface-2) 50%,
+    var(--surface-0) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite ease-in-out;
+}
+
+/* ── Canvas drop zone highlight ── */
+.drop-zone-active {
+  border-color: var(--accent) !important;
+  box-shadow: inset 0 0 40px var(--accent-muted);
+}
+
+/* ── Score chip — glassmorphism ── */
+.score-chip {
+  transition: box-shadow var(--duration-fast) var(--ease-out);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .score-chip:hover {
+    box-shadow: var(--shadow-md), var(--shadow-glow);
+  }
+}
+
+/* ── Close button — rotation hint on hover ── */
+.close-btn {
+  transition: transform var(--duration-micro) var(--ease-out),
+              background var(--duration-micro) var(--ease-out);
+}
+
+/* ── Canvas upload icon ── */
+.canvas-upload-icon {
+  transition: transform var(--duration-fast) var(--ease-out),
+              box-shadow var(--duration-fast) var(--ease-out);
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Page Load Entrance Animation (CSS — runs off main thread per Emil)
+   ════════════════════════════════════════════════════════════════════════════ */
+
+@keyframes pageSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+body {
+  animation: pageSlideIn 0.5s cubic-bezier(0.23, 1, 0.32, 1) both;
 }

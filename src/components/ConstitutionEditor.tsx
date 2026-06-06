@@ -1,70 +1,199 @@
-import React, { useState, useEffect } from 'react';
-import { BookOpen, Check, Save, RefreshCw } from 'lucide-react';
+'use client';
+
+import React, { useState } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { useStore } from '@/lib/store';
+import { duration, easing, springPreset } from '@/lib/motion';
 
-export const ConstitutionEditor: React.FC = () => {
-  const storeRules = useStore((state) => state.rulesText);
-  const version = useStore((state) => state.rulesVersion);
-  const updateConstitution = useStore((state) => state.updateConstitution);
-  const [localRules, setLocalRules] = useState('');
-  const [isSaving, setIsSaving] = useState(false);
-  const [saveSuccess, setSaveSuccess] = useState(false);
+interface ConstitutionEditorProps {
+  onClose: () => void;
+}
 
-  // Sync state with store loaded value
-  useEffect(() => {
-    setLocalRules(storeRules);
-  }, [storeRules]);
+export const ConstitutionEditor: React.FC<ConstitutionEditorProps> = ({ onClose }) => {
+  const { rulesText, rulesVersion, updateConstitution } = useStore();
+  const [draft, setDraft] = useState(rulesText);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
 
   const handleSave = async () => {
-    setIsSaving(true);
-    setSaveSuccess(false);
-    const success = await updateConstitution(localRules);
-    setIsSaving(false);
+    setSaving(true);
+    const success = await updateConstitution(draft);
+    setSaving(false);
     if (success) {
-      setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 2000);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
     }
   };
 
   return (
-    <div className="glass-panel rounded-xl p-4 flex flex-col h-[280px] border border-zinc-800">
-      <div className="flex items-center justify-between border-b border-zinc-800 pb-3 mb-3">
-        <div className="flex items-center gap-2">
-          <BookOpen className="w-4 h-4 text-emerald-500" />
-          <h2 className="font-semibold text-sm text-zinc-200">Design Constitution</h2>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded border border-zinc-700">
-            v{version || 1}
-          </span>
-          <button
-            onClick={handleSave}
-            disabled={isSaving}
-            className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs px-2.5 py-1 rounded transition disabled:opacity-50"
-          >
-            {isSaving ? (
-              <RefreshCw className="w-3 h-3 animate-spin" />
-            ) : saveSuccess ? (
-              <Check className="w-3 h-3 text-white" />
-            ) : (
-              <Save className="w-3 h-3" />
+    <>
+      {/* Backdrop — smooth fade with blur */}
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: duration.normal, ease: easing.out }}
+        className="fixed inset-0 z-40"
+        style={{ background: 'rgba(19, 19, 20, 0.15)', backdropFilter: 'blur(2px)' }}
+        onClick={onClose}
+      />
+
+      {/* Panel — drawer curve from Emil Kowalski */}
+      <motion.div
+        initial={{ x: '100%' }}
+        animate={{ x: 0 }}
+        exit={{ x: '100%' }}
+        transition={{ duration: duration.slow, ease: easing.drawer }}
+        className="fixed top-0 right-0 bottom-0 z-50 flex flex-col"
+        style={{
+          width: '460px',
+          maxWidth: '90vw',
+          background: 'var(--bg-base)',
+          borderLeft: '1px solid var(--border-subtle)',
+          boxShadow: '-20px 0 60px rgba(19, 19, 20, 0.08)',
+        }}
+      >
+        {/* Header — staggered content */}
+        <motion.div
+          className="flex items-center justify-between px-6 py-5"
+          style={{ borderBottom: '1px solid var(--border-subtle)' }}
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.15, duration: duration.normal, ease: easing.out }}
+        >
+          <div>
+            <h2 className="font-display text-lg" style={{ color: 'var(--text-primary)', fontWeight: 600 }}>
+              Design Constitution
+            </h2>
+            {rulesVersion && (
+              <motion.p
+                className="text-xs mono mt-1"
+                style={{ color: 'var(--text-ghost)' }}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.25, duration: duration.normal }}
+              >
+                Version {rulesVersion}
+              </motion.p>
             )}
-            <span>{saveSuccess ? 'Saved' : 'Update'}</span>
-          </button>
-        </div>
-      </div>
-      <div className="flex-1 flex flex-col">
-        <textarea
-          value={localRules}
-          onChange={(e) => setLocalRules(e.target.value)}
-          className="w-full flex-1 bg-zinc-950/80 border border-zinc-800 rounded p-2 text-xs font-mono text-zinc-300 focus:outline-none focus:border-zinc-700 resize-none"
-          placeholder="# Design Constitution Rules..."
-        />
-        <div className="text-[9px] text-zinc-500 mt-1.5">
-          * Markdown format. Agents read these rules at every stage of generation and critique.
-        </div>
-      </div>
-    </div>
+          </div>
+
+          {/* Close button with rotation */}
+          <motion.button
+            onClick={onClose}
+            className="p-2 rounded-md close-btn"
+            style={{ color: 'var(--text-muted)' }}
+            whileHover={{ rotate: 90, backgroundColor: 'var(--surface-0)' }}
+            whileTap={{ scale: 0.9 }}
+            transition={{ duration: duration.micro, ease: easing.out }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </motion.button>
+        </motion.div>
+
+        {/* Editor — smooth entrance */}
+        <motion.div
+          className="flex-1 overflow-hidden p-6"
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.25, duration: duration.moderate, ease: easing.out }}
+        >
+          <p className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>
+            Rules are injected into every agent at generation and critique time.
+          </p>
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            className="w-full h-full mono text-xs leading-relaxed p-4 resize-none textarea-field"
+            style={{
+              background: 'var(--surface-0)',
+              border: '1px solid var(--border-subtle)',
+              borderRadius: 'var(--radius-md)',
+              color: 'var(--text-secondary)',
+              outline: 'none',
+              minHeight: '300px',
+            }}
+            spellCheck={false}
+          />
+        </motion.div>
+
+        {/* Footer — staggered buttons */}
+        <motion.div
+          className="px-6 py-5 flex items-center justify-end gap-3"
+          style={{ borderTop: '1px solid var(--border-subtle)' }}
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.35, duration: duration.normal, ease: easing.out }}
+        >
+          <motion.button
+            onClick={onClose}
+            className="btn-ghost"
+            whileTap={{ scale: 0.97 }}
+            transition={{ duration: duration.press }}
+          >
+            Cancel
+          </motion.button>
+          <motion.button
+            onClick={handleSave}
+            disabled={saving}
+            className="btn-primary flex items-center gap-2"
+            whileTap={{ scale: 0.97 }}
+            transition={{ duration: duration.press }}
+          >
+            <AnimatePresence mode="wait">
+              {saved ? (
+                <motion.span
+                  key="saved"
+                  className="flex items-center gap-1.5"
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.9 }}
+                  transition={springPreset.snappy}
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20,6 9,17 4,12"/>
+                  </svg>
+                  Saved
+                </motion.span>
+              ) : saving ? (
+                <motion.span
+                  key="saving"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: duration.micro }}
+                >
+                  <span className="flex gap-0.5 items-center">
+                    {[0, 1, 2].map((i) => (
+                      <motion.span
+                        key={i}
+                        className="w-1 h-1 rounded-full bg-current"
+                        animate={{ opacity: [0.3, 1, 0.3] }}
+                        transition={{ duration: 1, repeat: Infinity, ease: 'easeInOut', delay: i * 0.15 }}
+                      />
+                    ))}
+                    <span className="ml-1.5">Saving</span>
+                  </span>
+                </motion.span>
+              ) : (
+                <motion.span
+                  key="update"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: duration.micro }}
+                >
+                  Update
+                </motion.span>
+              )}
+            </AnimatePresence>
+          </motion.button>
+        </motion.div>
+      </motion.div>
+    </>
   );
 };
+
 export default ConstitutionEditor;

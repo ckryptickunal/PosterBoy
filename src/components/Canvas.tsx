@@ -1,302 +1,409 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Edit3 } from 'lucide-react';
-import { LayoutElement, Region, TypographyTokens, LayoutOutput } from '@/types/agents';
-import { getElementRenderStyles } from '@/lib/rendererEngine';
+'use client';
+
+import React, { useRef, useEffect, useState } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+import { WebLayoutOutput, TypographyTokens } from '@/types/agents';
+import {
+  fadeIn, scaleIn, slideUp, duration, easing, pulse,
+  breathingGlow, scoreReveal, springPreset, pressScale,
+} from '@/lib/motion';
+import { LottieAnimation, LOTTIE_URLS } from '@/components/LottieAnimation';
 
 interface CanvasProps {
   imageUrl: string | null;
-  layout: LayoutOutput | null;
+  layout: WebLayoutOutput | null;
   typography: TypographyTokens | null;
-  faceRegions: Region[];
-  productRegions: Region[];
-  onElementUpdate: (id: string, updates: Partial<LayoutElement>) => void;
-  selectedElementId: string | null;
-  setSelectedElementId: (id: string | null) => void;
+  html: string | null;
+  score: number | null;
+  status: string;
 }
 
 export const Canvas: React.FC<CanvasProps> = ({
   imageUrl,
   layout,
-  typography,
-  faceRegions,
-  productRegions,
-  onElementUpdate,
-  selectedElementId,
-  setSelectedElementId
+  html,
+  score,
+  status,
 }) => {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [isDragging, setIsDragging] = useState(false);
-  const [isResizing, setIsResizing] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
-  const [elementStart, setElementStart] = useState({ x: 0, y: 0, w: 0, h: 0 });
-  const [editingId, setEditingId] = useState<string | null>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const [iframeLoaded, setIframeLoaded] = useState(false);
 
-  // Stable mouse-move/up handlers (stable refs so the effect dependency is correct)
-  const handleMouseMove = useCallback((e: MouseEvent) => {
-    if (!containerRef.current || (!isDragging && !isResizing)) return;
-
-    const containerWidth = containerRef.current.offsetWidth;
-    const containerHeight = containerRef.current.offsetHeight;
-
-    const deltaX = ((e.clientX - dragStart.x) / containerWidth) * 100;
-    const deltaY = ((e.clientY - dragStart.y) / containerHeight) * 100;
-
-    if (selectedElementId) {
-      const elem = layout?.elements.find(el => el.id === selectedElementId);
-      if (!elem) return;
-      
-      if (isDragging) {
-        const newX = Math.max(0, Math.min(100 - elementStart.w, elementStart.x + deltaX));
-        const newY = Math.max(0, Math.min(100 - elementStart.h, elementStart.y + deltaY));
-        onElementUpdate(selectedElementId, { x: newX, y: newY });
-      } else if (isResizing) {
-        const newW = Math.max(5, Math.min(100 - elementStart.x, elementStart.w + deltaX));
-        const newH = Math.max(3, Math.min(100 - elementStart.y, elementStart.h + deltaY));
-        onElementUpdate(selectedElementId, { width: newW, height: newH });
-      }
-    }
-  }, [isDragging, isResizing, dragStart, elementStart, selectedElementId, layout, onElementUpdate]);
-
-  const handleMouseUp = useCallback(() => {
-    setIsDragging(false);
-    setIsResizing(false);
-  }, []);
-
-  // Attach global mouse listeners
   useEffect(() => {
-    if (!isDragging && !isResizing) return;
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [isDragging, isResizing, handleMouseMove, handleMouseUp]);
+    if (iframeRef.current && html) {
+      const doc = iframeRef.current.contentDocument;
+      if (doc) {
+        doc.open();
+        doc.write(html);
+        doc.close();
+        setTimeout(() => setIframeLoaded(true), 400);
+      }
+    } else {
+      setIframeLoaded(false);
+    }
+  }, [html]);
 
-  // Early return if no image uploaded
-  if (!imageUrl) {
+  const isProcessing = ['analyzing', 'designing', 'copywriting', 'typography', 'arranging', 'evolving'].includes(status);
+
+  // Status labels — creative collaborator language
+  const statusLabels: Record<string, { label: string; sub: string }> = {
+    analyzing: { label: 'Analyzing composition', sub: 'Understanding visual hierarchy & focal points' },
+    designing: { label: 'Evaluating hierarchy', sub: 'Mapping spatial relationships & balance' },
+    copywriting: { label: 'Crafting narrative', sub: 'Writing compelling editorial copy' },
+    typography: { label: 'Selecting typography', sub: 'Pairing fonts for maximum impact' },
+    arranging: { label: 'Exploring directions', sub: 'Testing layout archetypes & grids' },
+    evolving: { label: 'Refining compositions', sub: 'Evolutionary search for optimal layout' },
+    rendering: { label: 'Composing final design', sub: 'Assembling all elements into HTML' },
+    critiquing: { label: 'Evaluating quality', sub: 'Scoring against design constitution' },
+  };
+
+  // ── Empty State — inviting, alive ──────────────────────────────────────────
+  if (!imageUrl && !html) {
     return (
-      <div className="flex-1 min-h-[400px] border-2 border-dashed border-zinc-800 rounded-2xl flex flex-col items-center justify-center text-zinc-500 p-8">
-        <p className="text-sm italic">Please upload an image and input intent to start generating designs.</p>
-      </div>
+      <motion.div
+        variants={fadeIn}
+        initial="initial"
+        animate="animate"
+        className="flex flex-col items-center justify-center w-full canvas-empty"
+        style={{
+          maxWidth: '760px',
+          aspectRatio: '1 / 1',
+          background: 'var(--surface-0)',
+          border: '1px dashed var(--border-default)',
+          borderRadius: 'var(--radius-lg)',
+          position: 'relative',
+          overflow: 'hidden',
+        }}
+      >
+        {/* Animated corner accents */}
+        <motion.div
+          className="absolute top-0 left-0 w-20 h-20"
+          style={{
+            background: 'linear-gradient(135deg, rgba(217, 119, 87, 0.06) 0%, transparent 70%)',
+            borderRadius: '0 0 100% 0',
+          }}
+          animate={{ opacity: [0.3, 0.7, 0.3] }}
+          transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }}
+        />
+        <motion.div
+          className="absolute bottom-0 right-0 w-20 h-20"
+          style={{
+            background: 'linear-gradient(315deg, rgba(106, 155, 204, 0.06) 0%, transparent 70%)',
+            borderRadius: '100% 0 0 0',
+          }}
+          animate={{ opacity: [0.3, 0.7, 0.3] }}
+          transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut', delay: 2 }}
+        />
+
+        <motion.div className="flex flex-col items-center gap-6 z-10">
+          {/* Upload icon with pulse */}
+          <motion.div
+            className="w-16 h-16 rounded-2xl flex items-center justify-center canvas-upload-icon"
+            style={{
+              border: '1.5px solid var(--border-default)',
+              background: 'linear-gradient(135deg, var(--surface-1), var(--surface-0))',
+            }}
+            animate={{
+              boxShadow: [
+                '0 0 0 0 rgba(217, 119, 87, 0)',
+                '0 0 0 8px rgba(217, 119, 87, 0.04)',
+                '0 0 0 0 rgba(217, 119, 87, 0)',
+              ],
+            }}
+            transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
+          >
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--accent)' }}>
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+              <circle cx="8.5" cy="8.5" r="1.5"/>
+              <polyline points="21,15 16,10 5,21"/>
+            </svg>
+          </motion.div>
+
+          <div className="text-center">
+            <motion.p
+              className="font-editorial text-xl"
+              style={{ color: 'var(--text-secondary)', fontWeight: 400 }}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.15, duration: duration.moderate, ease: easing.out }}
+            >
+              Begin with an image
+            </motion.p>
+            <motion.p
+              className="text-xs mt-2"
+              style={{ color: 'var(--text-ghost)' }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.3, duration: duration.moderate, ease: easing.out }}
+            >
+              JPG, PNG, or WebP — drag or select from panel
+            </motion.p>
+          </div>
+
+          {/* Subtle animated line decoration */}
+          <motion.div
+            className="flex gap-1.5 items-center mt-2"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.45, duration: duration.moderate }}
+          >
+            {[0, 1, 2].map((i) => (
+              <motion.div
+                key={i}
+                className="rounded-full"
+                style={{
+                  width: i === 1 ? '20px' : '4px',
+                  height: '3px',
+                  background: 'var(--accent)',
+                  opacity: 0.25,
+                }}
+                animate={{ opacity: [0.15, 0.4, 0.15] }}
+                transition={{
+                  duration: 2.5,
+                  repeat: Infinity,
+                  ease: 'easeInOut',
+                  delay: i * 0.3,
+                }}
+              />
+            ))}
+          </motion.div>
+        </motion.div>
+      </motion.div>
     );
   }
 
-  const handleMouseDown = (e: React.MouseEvent, elem: LayoutElement) => {
-    if (editingId === elem.id) return;
-    e.stopPropagation();
-    setSelectedElementId(elem.id);
-    if (!containerRef.current) return;
-    setIsDragging(true);
-    setDragStart({ x: e.clientX, y: e.clientY });
-    setElementStart({ x: elem.x, y: elem.y, w: elem.width, h: elem.height });
-  };
+  // ── Processing State — alive, informative ─────────────────────────────────
+  if (imageUrl && !html) {
+    const statusInfo = statusLabels[status] || { label: 'Processing…', sub: '' };
 
-  const handleResizeMouseDown = (e: React.MouseEvent, elem: LayoutElement) => {
-    e.stopPropagation();
-    e.preventDefault();
-    setIsResizing(true);
-    setDragStart({ x: e.clientX, y: e.clientY });
-    setElementStart({ x: elem.x, y: elem.y, w: elem.width, h: elem.height });
-  };
-
-  // Base bounding-box coordinate styles
-  const getContainerStyle = (elem: LayoutElement) => ({
-    position: 'absolute' as const,
-    left: `${elem.x}%`,
-    top: `${elem.y}%`,
-    width: `${elem.width}%`,
-    height: `${elem.height}%`,
-    transform: `rotate(${elem.rotation || 0}deg)`,
-    zIndex: elem.zIndex || 10,
-  });
-
-  return (
-    <div className="relative flex-1 flex items-center justify-center p-2 bg-zinc-950 rounded-2xl overflow-hidden min-h-[500px]">
-      <div
-        id="design-canvas"
-        ref={containerRef}
-        style={{ containerType: 'inline-size' }}
-        className="relative shadow-2xl bg-zinc-900 overflow-hidden w-full max-w-[650px] aspect-[4/5] rounded-xl border border-zinc-800"
-        onClick={() => setSelectedElementId(null)}
+    return (
+      <motion.div
+        variants={scaleIn}
+        initial="initial"
+        animate="animate"
+        className="relative flex-1 overflow-hidden w-full"
+        style={{
+          maxWidth: '760px',
+          aspectRatio: '1 / 1',
+          background: 'var(--bg-base)',
+          border: '1px solid var(--border-subtle)',
+          borderRadius: 'var(--radius-lg)',
+        }}
       >
-        {/* Background Image */}
-        <img
+        {/* Background image — gently dimmed */}
+        <motion.img
           src={imageUrl}
-          alt="Poster Background"
-          className="absolute inset-0 w-full h-full object-cover pointer-events-none select-none"
+          alt="Source"
+          className="w-full h-full object-cover absolute inset-0"
+          style={{ opacity: 0.1, filter: 'blur(4px) saturate(0.5)' }}
+          animate={{ scale: [1, 1.02, 1] }}
+          transition={{ duration: 8, repeat: Infinity, ease: 'easeInOut' }}
         />
 
-        {/* Face Region Overlays */}
-        {faceRegions.map((region, idx) => (
-          <div
-            key={`face-${idx}`}
-            className="absolute border border-dashed border-rose-500/40 bg-rose-500/5 flex items-center justify-center pointer-events-none z-0"
-            style={{
-              left: `${region.x}%`,
-              top: `${region.y}%`,
-              width: `${region.width}%`,
-              height: `${region.height}%`,
-            }}
-          >
-            <span className="text-[9px] font-mono text-rose-400 bg-zinc-950/80 px-1 rounded border border-rose-900/40">
-              Face Region
-            </span>
-          </div>
-        ))}
+        {/* Gradient overlay for depth */}
+        <div
+          className="absolute inset-0"
+          style={{
+            background: 'radial-gradient(ellipse at center, transparent 30%, var(--bg-base) 100%)',
+          }}
+        />
 
-        {/* Product Region Overlays */}
-        {productRegions.map((region, idx) => (
-          <div
-            key={`product-${idx}`}
-            className="absolute border border-dashed border-amber-500/40 bg-amber-500/5 flex items-center justify-center pointer-events-none z-0"
-            style={{
-              left: `${region.x}%`,
-              top: `${region.y}%`,
-              width: `${region.width}%`,
-              height: `${region.height}%`,
-            }}
-          >
-            <span className="text-[9px] font-mono text-amber-400 bg-zinc-950/80 px-1 rounded border border-amber-900/40">
-              {region.label || 'Product'}
-            </span>
-          </div>
-        ))}
-
-        {/* Layout Elements */}
-        {layout?.elements.map((elem) => {
-          const isSelected = selectedElementId === elem.id;
-
-          // Generate identical styles using the unified rendererEngine
-          const engineStyles = typography
-            ? getElementRenderStyles(elem, typography)
-            : {};
-
-          // Merge layout container styles with engine font styles
-          const mergedStyle = {
-            ...getContainerStyle(elem),
-            ...engineStyles,
-            // Reset position/left/top/width/height/transform/zIndex to avoid double setting
-            position: 'absolute' as const,
-          } as any;
-
-          return (
-            <div
-              key={elem.id}
-              style={mergedStyle}
-              onMouseDown={(e) => handleMouseDown(e, elem)}
-              className={`absolute group cursor-move select-none rounded transition-shadow ${
-                isSelected
-                  ? 'ring-2 ring-blue-500/60 shadow-lg'
-                  : 'hover:ring-1 hover:ring-zinc-600/40'
-              }`}
+        {/* Processing overlay */}
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-5 z-10">
+          {/* Animated processing indicator — orbiting dots */}
+          <div className="relative w-16 h-16">
+            <motion.div
+              className="absolute inset-0"
+              animate={{ rotate: 360 }}
+              transition={{ duration: 3, repeat: Infinity, ease: 'linear' }}
             >
-              {/* CTA Button */}
-              {elem.type === 'cta' ? (
-                <div
+              {[0, 1, 2].map((i) => (
+                <motion.div
+                  key={i}
+                  className="absolute w-2.5 h-2.5 rounded-full"
                   style={{
-                    backgroundColor: elem.color || '#3b82f6',
-                    fontFamily: mergedStyle.fontFamily,
-                    fontSize: mergedStyle.fontSize,
-                    fontWeight: 'bold',
-                    letterSpacing: mergedStyle.letterSpacing,
+                    background: 'var(--accent)',
+                    top: '50%',
+                    left: '50%',
+                    transformOrigin: '0 0',
                   }}
-                  className="w-full h-full flex items-center justify-center rounded-lg shadow-md px-4 text-white text-center cursor-pointer overflow-hidden border border-white/10"
-                >
-                  {editingId === elem.id ? (
-                    <input
-                      type="text"
-                      value={elem.text || ''}
-                      onChange={(e) => onElementUpdate(elem.id, { text: e.target.value })}
-                      onBlur={() => setEditingId(null)}
-                      onKeyDown={(e) => e.key === 'Enter' && setEditingId(null)}
-                      autoFocus
-                      className="bg-zinc-900 border border-zinc-700 text-white rounded px-2 w-full text-center focus:outline-none"
-                    />
-                  ) : (
-                    <span onDoubleClick={() => setEditingId(elem.id)}>
-                      {elem.text || 'CTA BUTTON'}
-                    </span>
-                  )}
-                </div>
-              ) : elem.type === 'logo' ? (
-                <div className="w-full h-full flex items-center justify-center border border-dashed border-zinc-700 bg-zinc-950/30 rounded text-center text-[1.5cqw] text-zinc-400 font-bold uppercase tracking-widest">
-                  {editingId === elem.id ? (
-                    <input
-                      type="text"
-                      value={elem.text || 'BRAND'}
-                      onChange={(e) => onElementUpdate(elem.id, { text: e.target.value })}
-                      onBlur={() => setEditingId(null)}
-                      onKeyDown={(e) => e.key === 'Enter' && setEditingId(null)}
-                      autoFocus
-                      className="bg-zinc-900 border border-zinc-700 text-white rounded px-2 w-full text-center focus:outline-none"
-                    />
-                  ) : (
-                    <span onDoubleClick={() => setEditingId(elem.id)}>
-                      {elem.text || 'BRAND LOGO'}
-                    </span>
-                  )}
-                </div>
-              ) : elem.type === 'divider' ? (
-                <div className="w-full h-1/2 border-b border-zinc-600" />
-              ) : (
-                <div
-                  style={{
-                    fontFamily: mergedStyle.fontFamily,
-                    fontSize: mergedStyle.fontSize,
-                    fontWeight: mergedStyle.fontWeight,
-                    lineHeight: mergedStyle.lineHeight,
-                    letterSpacing: mergedStyle.letterSpacing,
-                    textAlign: mergedStyle.textAlign as any,
-                    color: mergedStyle.color,
+                  animate={{
+                    opacity: [0.3, 1, 0.3],
+                    scale: [0.8, 1.1, 0.8],
                   }}
-                  className="w-full h-full overflow-hidden flex items-center justify-center leading-normal"
-                >
-                  {editingId === elem.id ? (
-                    <textarea
-                      value={elem.text || ''}
-                      onChange={(e) => onElementUpdate(elem.id, { text: e.target.value })}
-                      onBlur={() => setEditingId(null)}
-                      autoFocus
-                      className="bg-zinc-900 border border-zinc-700 text-white rounded p-1 w-full h-full focus:outline-none resize-none font-sans text-xs"
-                    />
-                  ) : (
-                    <span
-                      onDoubleClick={() => setEditingId(elem.id)}
-                      className="w-full inline-block truncate whitespace-pre-wrap break-words"
-                    >
-                      {elem.text}
-                    </span>
-                  )}
-                </div>
-              )}
+                  transition={{
+                    duration: 2,
+                    repeat: Infinity,
+                    ease: 'easeInOut',
+                    delay: i * 0.4,
+                  }}
+                  initial={false}
+                />
+              ))}
+            </motion.div>
 
-              {/* Selection & Resize Handles */}
-              {isSelected && (
-                <>
-                  <div
-                    onMouseDown={(e) => handleResizeMouseDown(e, elem)}
-                    className="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-blue-500 border border-white rounded-full cursor-se-resize z-50 shadow-md hover:scale-110 transition-transform"
-                  />
-                  <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-zinc-900 text-white border border-zinc-800 text-[10px] rounded px-2 py-0.5 shadow-xl flex items-center gap-1.5 opacity-90 hover:opacity-100 transition-opacity z-50">
-                    <button onClick={() => setEditingId(elem.id)} className="hover:text-blue-400 p-0.5">
-                      <Edit3 className="w-3 h-3" />
-                    </button>
-                    <span className="text-zinc-600">|</span>
-                    <button
-                      onClick={() => onElementUpdate(elem.id, { rotation: ((elem.rotation || 0) + 45) % 360 })}
-                      className="hover:text-zinc-300 font-mono text-[9px] px-0.5"
-                    >
-                      R
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
+            {/* Center dot */}
+            <motion.div
+              className="absolute top-1/2 left-1/2 w-3 h-3 rounded-full -translate-x-1/2 -translate-y-1/2"
+              style={{ background: 'var(--accent)' }}
+              animate={{ opacity: [0.4, 1, 0.4], scale: [0.9, 1.1, 0.9] }}
+              transition={{ duration: 2.5, repeat: Infinity, ease: 'easeInOut' }}
+            />
+          </div>
+
+          {/* Status text — editorial voice with AnimatePresence */}
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={status}
+              className="text-center"
+              initial={{ opacity: 0, y: 10, filter: 'blur(4px)' }}
+              animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+              exit={{ opacity: 0, y: -6, filter: 'blur(4px)' }}
+              transition={{ duration: duration.normal, ease: easing.out }}
+            >
+              <p
+                className="font-editorial text-lg"
+                style={{ color: 'var(--text-secondary)', fontWeight: 400 }}
+              >
+                {statusInfo.label}
+              </p>
+              <motion.p
+                className="text-xs mt-1.5"
+                style={{ color: 'var(--text-ghost)' }}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.15, duration: duration.normal }}
+              >
+                {statusInfo.sub}
+              </motion.p>
+            </motion.div>
+          </AnimatePresence>
+
+          {/* Progress bar — smooth sweep */}
+          <motion.div
+            className="w-48 h-0.5 rounded-full overflow-hidden"
+            style={{ background: 'var(--surface-2)' }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.3, duration: duration.moderate }}
+          >
+            <motion.div
+              className="h-full rounded-full"
+              style={{
+                background: 'linear-gradient(90deg, var(--accent), var(--accent-light))',
+              }}
+              animate={{ x: ['-100%', '200%'] }}
+              transition={{ duration: 1.8, repeat: Infinity, ease: easing.inOut }}
+            />
+          </motion.div>
+        </div>
+      </motion.div>
+    );
+  }
+
+  // ── Active State (HTML rendered) ──────────────────────────────────────────
+  return (
+    <motion.div
+      variants={scaleIn}
+      initial="initial"
+      animate="animate"
+      className="relative flex-1 w-full"
+      style={{ maxWidth: '760px' }}
+    >
+      {/* Strategy label — animated badge */}
+      <AnimatePresence>
+        {layout && (
+          <motion.div
+            initial={{ opacity: 0, y: -8, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -4, scale: 0.97 }}
+            transition={{ duration: duration.normal, ease: easing.out }}
+            className="absolute top-3 left-3 z-20"
+          >
+            <span className="badge-accent badge-animated">
+              {layout.strategy}
+            </span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Score — animated reveal with blur-in */}
+      <AnimatePresence>
+        {score !== null && (
+          <motion.div
+            variants={scoreReveal}
+            initial="initial"
+            animate="animate"
+            exit="initial"
+            className="absolute bottom-4 right-4 z-20 flex items-center gap-2 score-chip"
+            style={{
+              background: 'rgba(254, 250, 224, 0.92)',
+              backdropFilter: 'blur(12px)',
+              borderRadius: 'var(--radius-md)',
+              padding: '8px 16px',
+              border: '1px solid var(--border-subtle)',
+              boxShadow: 'var(--shadow-md)',
+            }}
+          >
+            <motion.span
+              className="font-display text-xl"
+              style={{
+                color: score >= 70 ? 'var(--status-success)' : 'var(--accent)',
+                fontWeight: 600,
+              }}
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={springPreset.bouncy}
+            >
+              {score}
+            </motion.span>
+            <span className="text-xs" style={{ color: 'var(--text-muted)' }}>/100</span>
+
+            {/* Success sparkle when score >= 70 */}
+            {score >= 70 && (
+              <motion.div
+                className="absolute -top-1 -right-1"
+                initial={{ opacity: 0, scale: 0 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: 0.3, ...springPreset.bouncy }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="var(--status-success)" style={{ filter: 'drop-shadow(0 0 4px rgba(120, 140, 93, 0.3))' }}>
+                  <path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 16.8l-6.2 4.5 2.4-7.4L2 9.4h7.6z"/>
+                </svg>
+              </motion.div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* The iframe — smooth reveal with border radius */}
+      <motion.div
+        initial={{ opacity: 0, scale: 0.98 }}
+        animate={{ opacity: iframeLoaded ? 1 : 0, scale: iframeLoaded ? 1 : 0.98 }}
+        transition={{ duration: duration.reveal, ease: easing.out }}
+        className="overflow-hidden canvas-frame"
+        style={{
+          borderRadius: 'var(--radius-lg)',
+          border: '1px solid var(--border-subtle)',
+          boxShadow: iframeLoaded ? 'var(--shadow-lg)' : 'none',
+          transition: `box-shadow ${duration.slow * 1000}ms`,
+        }}
+      >
+        <iframe
+          ref={iframeRef}
+          id="design-canvas"
+          title="Design Preview"
+          className="w-full"
+          style={{
+            backgroundColor: '#f5f0cb',
+            aspectRatio: '1 / 1',
+            maxHeight: '760px',
+            display: 'block',
+          }}
+          sandbox="allow-same-origin"
+          srcDoc={html || ''}
+        />
+      </motion.div>
+    </motion.div>
   );
 };
 

@@ -10,6 +10,18 @@ const db = new Database(DB_PATH);
 // Set WAL mode for faster local execution
 db.pragma('journal_mode = WAL');
 
+// Check and drop layout_memory if old schema exists
+try {
+  const tableInfo = db.prepare("PRAGMA table_info(layout_memory)").all() as Array<{ name: string }>;
+  const hasVisualGenome = tableInfo.some(col => col.name === 'visual_genome_json');
+  if (tableInfo.length > 0 && !hasVisualGenome) {
+    console.log("Migrating layout_memory schema (dropping old table)...");
+    db.exec(`DROP TABLE layout_memory;`);
+  }
+} catch (e) {
+  // Safe if table doesn't exist
+}
+
 // Initialize schema
 db.exec(`
   CREATE TABLE IF NOT EXISTS jobs (
@@ -29,12 +41,14 @@ db.exec(`
     created_at TEXT NOT NULL
   );
 
+  -- Drop old layout_memory if it exists and uses the old schema
+  -- Handled dynamically in TS bootstrap below if needed, but we keep the new table schema here:
   CREATE TABLE IF NOT EXISTS layout_memory (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    image_type TEXT NOT NULL,
-    goal TEXT NOT NULL,
-    style TEXT NOT NULL,
-    headline_strategy TEXT NOT NULL,
+    visual_genome_json TEXT NOT NULL,
+    communication_genome_json TEXT NOT NULL,
+    layout_genome_json TEXT NOT NULL,
+    decisions_json TEXT NOT NULL,
     score REAL NOT NULL,
     layout_json TEXT NOT NULL,
     created_at TEXT NOT NULL
@@ -49,6 +63,22 @@ db.exec(`
     fixes_json TEXT NOT NULL,
     layout_json TEXT NOT NULL,
     screenshot_path TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(job_id) REFERENCES jobs(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS evolution_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id TEXT NOT NULL,
+    generation INTEGER NOT NULL,
+    candidate_index INTEGER NOT NULL,
+    layout_json TEXT NOT NULL,
+    score REAL,
+    reasoning_json TEXT,
+    typography_json TEXT,
+    parent_id INTEGER,
+    mutation_type TEXT,
+    is_winner INTEGER DEFAULT 0,
     created_at TEXT NOT NULL,
     FOREIGN KEY(job_id) REFERENCES jobs(id)
   );

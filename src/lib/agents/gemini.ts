@@ -9,8 +9,8 @@ if (!apiKey) {
 
 export const ai = new GoogleGenAI({ apiKey });
 
-// Defaulting to gemini-2.5-flash for speed, cost, and structured output reliability
-export const DEFAULT_MODEL = 'gemini-2.5-flash';
+// Defaulting to gemini-3.5-flash for speed, cost, and structured output reliability
+export const DEFAULT_MODEL = 'gemini-3.5-flash';
 
 export interface AgentCallParams {
   prompt: string;

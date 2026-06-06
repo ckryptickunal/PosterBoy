@@ -61,10 +61,12 @@ export async function POST(req: NextRequest) {
       jobId: result.jobId,
       imageUrl: relativeUrl,
       vision: result.vision,
-      concept: result.concept,
+      strategy: result.strategy,
       copy: result.copy,
       typography: result.typography,
-      layout: result.layout
+      layout: result.layout,
+      html: result.html,
+      evolution: result.evolution,
     });
 
   } catch (error: any) {

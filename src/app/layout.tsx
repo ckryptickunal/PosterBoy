@@ -1,19 +1,46 @@
 import type { Metadata } from "next";
+import { Inter } from "next/font/google";
+import { Source_Serif_4 } from "next/font/google";
+import { Geist_Mono } from "next/font/google";
 import "./globals.css";
 
+const inter = Inter({
+  subsets: ["latin"],
+  variable: "--font-inter",
+  display: "swap",
+});
+
+const sourceSerif = Source_Serif_4({
+  subsets: ["latin"],
+  weight: ["300", "400", "500", "600", "700"],
+  style: ["normal", "italic"],
+  variable: "--font-source-serif",
+  display: "swap",
+});
+
+const geistMono = Geist_Mono({
+  subsets: ["latin"],
+  variable: "--font-geist-mono",
+  display: "swap",
+});
+
 export const metadata: Metadata = {
-  title: "PosterBoy | Autonomous Design Director",
-  description: "Local-first self-correcting design director agent system powered by Gemini",
+  title: "PosterBoy — Creative Studio",
+  description: "Design intelligence studio for editorial compositions",
 };
 
 export default function RootLayout({
   children,
-  }: Readonly<{
-    children: React.ReactNode;
-  }>) {
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
   return (
-    <html lang="en" className="h-full antialiased dark">
-      <body className="min-h-full flex flex-col bg-[#09090b] text-[#fafafa]">
+    <html
+      lang="en"
+      className={`${inter.variable} ${sourceSerif.variable} ${geistMono.variable} antialiased`}
+      suppressHydrationWarning
+    >
+      <body className="min-h-dvh">
         {children}
       </body>
     </html>

@@ -74,7 +74,7 @@ function applyDeltas(layout: LayoutOutput, changes: RepairDelta[]): LayoutOutput
     }
   }
 
-  return { elements };
+  return { elements, reasoning: layout.reasoning };
 }
 
 /**

@@ -1,24 +1,19 @@
-import React, { useState } from 'react';
-import { Upload, FileText, Download, ShieldCheck, Type, ArrowRight, Settings, Image as ImageIcon, Info } from 'lucide-react';
+'use client';
+
+import React, { useState, useRef } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { useStore } from '@/lib/store';
+import {
+  slideUp, fadeIn, duration, easing, pressScale,
+  hoverLift, springPreset, staggerContainer, staggerItem,
+} from '@/lib/motion';
 
-interface ControlPanelProps {
-  onDownloadPng: () => void;
-  onDownloadHtml: () => void;
-  selectedElementId: string | null;
-}
-
-export const ControlPanel: React.FC<ControlPanelProps> = ({
-  onDownloadPng,
-  onDownloadHtml,
-  selectedElementId
-}) => {
+export const ControlPanel: React.FC = () => {
   const store = useStore();
-  const [activeTab, setActiveTab] = useState<'prompt' | 'assets' | 'export'>('prompt');
-  
-  // Pipeline prompt state
   const [intent, setIntent] = useState('An elegant Instagram post announcing our new Summer Diamond Jewellery Collection.');
   const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
 
   // Font uploader state
   const [fontFile, setFontFile] = useState<File | null>(null);
@@ -26,16 +21,24 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   const [fontCategory, setFontCategory] = useState<'display' | 'body'>('display');
   const [fontUploading, setFontUploading] = useState(false);
 
+  // Collapsible sections
+  const [fontsOpen, setFontsOpen] = useState(false);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      setImageFile(e.target.files[0]);
+      const file = e.target.files[0];
+      setImageFile(file);
+      const reader = new FileReader();
+      reader.onload = (ev) => setImagePreview(ev.target?.result as string);
+      reader.readAsDataURL(file);
     }
   };
 
   const handleFontChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       setFontFile(e.target.files[0]);
-      // Auto-extract family name from filename
       const name = e.target.files[0].name.split('.')[0].replace(/[-_]/g, ' ');
       setFontFamily(name);
     }
@@ -57,273 +60,475 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
     store.startDesignPipeline(imageFile, intent);
   };
 
-  const handleDownloadJson = () => {
-    if (!store.activeJob.layout) return;
-    const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(store.activeJob.layout, null, 2));
-    const downloadAnchor = document.createElement('a');
-    downloadAnchor.setAttribute('href', dataStr);
-    downloadAnchor.setAttribute('download', `posterboy_layout_${store.activeJob.id || 'export'}.json`);
-    document.body.appendChild(downloadAnchor);
-    downloadAnchor.click();
-    downloadAnchor.remove();
+  // Drag & drop handlers
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+  const handleDragLeave = () => setIsDragging(false);
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file && file.type.startsWith('image/')) {
+      setImageFile(file);
+      const reader = new FileReader();
+      reader.onload = (ev) => setImagePreview(ev.target?.result as string);
+      reader.readAsDataURL(file);
+    }
   };
 
-  const isGenerating = ['analyzing', 'designing', 'copywriting', 'typography', 'arranging', 'rendering', 'critiquing'].includes(store.activeJob.status);
+  const isGenerating = ['analyzing', 'designing', 'copywriting', 'typography', 'arranging', 'evolving', 'rendering', 'critiquing'].includes(store.activeJob.status);
 
   return (
-    <div className="glass-panel w-full lg:w-[350px] rounded-2xl flex flex-col border border-zinc-800 h-full overflow-hidden">
-      {/* Sidebar Tabs Header */}
-      <div className="flex border-b border-zinc-800 bg-zinc-900/60">
-        <button
-          onClick={() => setActiveTab('prompt')}
-          className={`flex-1 py-3 text-xs font-semibold flex items-center justify-center gap-1.5 border-b-2 transition ${
-            activeTab === 'prompt' 
-              ? 'border-blue-500 text-white bg-zinc-900' 
-              : 'border-transparent text-zinc-400 hover:text-zinc-200'
-          }`}
+    <div className="flex flex-col h-full overflow-y-auto">
+      {/* ── Image ── */}
+      <div className="px-6 pt-8 pb-6">
+        <motion.h3
+          className="font-display text-xs uppercase tracking-widest mb-4"
+          style={{ color: 'var(--text-muted)', letterSpacing: '0.15em' }}
+          initial={{ opacity: 0, x: -8 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: duration.normal, ease: easing.out }}
         >
-          <Settings className="w-3.5 h-3.5" />
-          <span>Prompt</span>
-        </button>
-        <button
-          onClick={() => setActiveTab('assets')}
-          className={`flex-1 py-3 text-xs font-semibold flex items-center justify-center gap-1.5 border-b-2 transition ${
-            activeTab === 'assets' 
-              ? 'border-blue-500 text-white bg-zinc-900' 
-              : 'border-transparent text-zinc-400 hover:text-zinc-200'
-          }`}
+          Image
+        </motion.h3>
+        <motion.div
+          className="relative overflow-hidden cursor-pointer group image-dropzone"
+          style={{
+            background: isDragging ? 'var(--accent-muted)' : 'var(--surface-0)',
+            border: `1.5px ${isDragging ? 'solid' : 'dashed'} ${isDragging ? 'var(--accent)' : 'var(--border-default)'}`,
+            borderRadius: 'var(--radius-md)',
+            minHeight: imagePreview ? 'auto' : '100px',
+          }}
+          onClick={() => fileInputRef.current?.click()}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          whileHover={{ borderColor: 'var(--accent)', scale: 1.005 }}
+          whileTap={{ scale: 0.995 }}
+          transition={{ duration: duration.micro, ease: easing.out }}
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          // @ts-ignore - motion typings
+          layoutId="image-upload"
         >
-          <Type className="w-3.5 h-3.5" />
-          <span>Fonts ({store.fonts.length})</span>
-        </button>
-        <button
-          onClick={() => setActiveTab('export')}
-          className={`flex-1 py-3 text-xs font-semibold flex items-center justify-center gap-1.5 border-b-2 transition ${
-            activeTab === 'export' 
-              ? 'border-blue-500 text-white bg-zinc-900' 
-              : 'border-transparent text-zinc-400 hover:text-zinc-200'
-          }`}
-        >
-          <Download className="w-3.5 h-3.5" />
-          <span>Export</span>
-        </button>
-      </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            onChange={handleImageChange}
+            className="hidden"
+          />
+          {imagePreview ? (
+            <div className="relative">
+              <motion.img
+                src={imagePreview}
+                alt="Selected"
+                className="w-full h-36 object-cover"
+                style={{ opacity: 0.85 }}
+                initial={{ opacity: 0, scale: 1.05 }}
+                animate={{ opacity: 0.85, scale: 1 }}
+                transition={{ duration: duration.moderate, ease: easing.out }}
+              />
+              {/* Hover overlay with smooth opacity */}
+              <motion.div
+                className="absolute inset-0 flex items-center justify-center"
+                style={{ background: 'rgba(254, 250, 224, 0.75)' }}
+                initial={{ opacity: 0 }}
+                whileHover={{ opacity: 1 }}
+                transition={{ duration: duration.micro, ease: easing.out }}
+              >
+                <motion.span
+                  className="text-xs font-medium flex items-center gap-1.5"
+                  style={{ color: 'var(--accent)' }}
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="17,8 12,3 7,8"/>
+                    <line x1="12" y1="3" x2="12" y2="15"/>
+                  </svg>
+                  Change image
+                </motion.span>
+              </motion.div>
 
-      {/* Tabs Content */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        
-        {/* Tab 1: Prompt & Upload */}
-        {activeTab === 'prompt' && (
-          <div className="space-y-4">
-            {/* Background Image Upload */}
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-zinc-400 uppercase tracking-wide">Background Image</label>
-              <div className="border border-dashed border-zinc-800 hover:border-zinc-700 bg-zinc-950/50 rounded-xl p-4 text-center cursor-pointer transition relative">
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleImageChange}
-                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                />
-                <div className="flex flex-col items-center justify-center gap-1.5">
-                  <ImageIcon className="w-6 h-6 text-zinc-500" />
-                  <span className="text-xs text-zinc-300 font-medium">
-                    {imageFile ? imageFile.name : 'Select or drop image'}
-                  </span>
-                  <span className="text-[10px] text-zinc-600">JPG, PNG, WebP</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Design Intent Prompts */}
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-zinc-400 uppercase tracking-wide">Design Intent & Goal</label>
-              <textarea
-                value={intent}
-                onChange={(e) => setIntent(e.target.value)}
-                className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-xs text-zinc-300 focus:outline-none focus:border-zinc-700 resize-none h-24"
-                placeholder="What are we designing today? E.g., Black Friday promo card..."
+              {/* Subtle gradient at bottom */}
+              <div
+                className="absolute bottom-0 left-0 right-0 h-8"
+                style={{ background: 'linear-gradient(transparent, var(--surface-0))' }}
               />
             </div>
-
-            {/* Pipeline Trigger */}
-            <button
-              onClick={handleTriggerPipeline}
-              disabled={isGenerating || !imageFile || !intent}
-              className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-zinc-800 disabled:text-zinc-600 text-white font-medium text-xs py-3 rounded-lg flex items-center justify-center gap-1.5 transition shadow-lg shadow-blue-500/10"
+          ) : (
+            <motion.div
+              className="flex flex-col items-center justify-center py-8 gap-2"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.1, duration: duration.normal }}
             >
-              <span>{isGenerating ? 'Director Working...' : 'Run Autonomous Director'}</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
+              {/* Upload icon with breathing animation */}
+              <motion.div
+                animate={{
+                  y: [0, -3, 0],
+                }}
+                transition={{ duration: 2.5, repeat: Infinity, ease: 'easeInOut' }}
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ color: isDragging ? 'var(--accent)' : 'var(--text-ghost)' }}>
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                  <polyline points="17,8 12,3 7,8"/>
+                  <line x1="12" y1="3" x2="12" y2="15"/>
+                </svg>
+              </motion.div>
+              <span className="text-xs" style={{ color: isDragging ? 'var(--accent)' : 'var(--text-ghost)' }}>
+                {isDragging ? 'Drop image here' : 'Drag or click to select'}
+              </span>
+            </motion.div>
+          )}
+        </motion.div>
+      </div>
 
-            {store.activeJob.typography && (
-              <div className="mt-4 bg-zinc-950/60 p-3 rounded-xl border border-zinc-900 space-y-2">
-                <div className="flex items-center gap-1.5 text-[11px] font-bold text-zinc-400 uppercase tracking-wider">
-                  <Info className="w-3.5 h-3.5 text-blue-400" />
-                  <span>Typography Strategy</span>
-                </div>
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div className="bg-zinc-900/50 p-2 rounded border border-zinc-800/40">
-                    <span className="text-[10px] text-zinc-500 block">Display Font</span>
-                    <span className="font-semibold text-zinc-200 font-mono truncate block" title={store.activeJob.typography.displayFont}>
-                      {store.activeJob.typography.displayFont}
-                    </span>
-                    <span className="text-[9px] text-zinc-500">{store.activeJob.typography.headlineSize}px, {store.activeJob.typography.fontWeightDisplay}</span>
-                  </div>
-                  <div className="bg-zinc-900/50 p-2 rounded border border-zinc-800/40">
-                    <span className="text-[10px] text-zinc-500 block">Body Font</span>
-                    <span className="font-semibold text-zinc-200 font-mono truncate block" title={store.activeJob.typography.bodyFont}>
-                      {store.activeJob.typography.bodyFont}
-                    </span>
-                    <span className="text-[9px] text-zinc-500">{store.activeJob.typography.bodySize}px, {store.activeJob.typography.fontWeightBody}</span>
-                  </div>
-                </div>
-                {store.activeJob.typography.reasoning && (
-                  <div className="text-[10px] text-zinc-400 bg-zinc-900/30 p-2 rounded border border-zinc-850 leading-relaxed max-h-[80px] overflow-y-auto">
-                    <strong>Designer Rationale:</strong> {store.activeJob.typography.reasoning}
+      {/* ── Divider ── */}
+      <div className="divider mx-6" />
+
+      {/* ── Intent ── */}
+      <motion.div
+        className="px-6 py-6"
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.1, duration: duration.normal, ease: easing.out }}
+      >
+        <h3 className="font-display text-xs uppercase tracking-widest mb-4" style={{ color: 'var(--text-muted)', letterSpacing: '0.15em' }}>
+          Brief
+        </h3>
+        <div className="relative">
+          <textarea
+            value={intent}
+            onChange={(e) => setIntent(e.target.value)}
+            placeholder="Describe the design intent…"
+            rows={3}
+            className="w-full resize-none text-sm leading-relaxed textarea-field"
+            style={{
+              background: 'transparent',
+              color: 'var(--text-primary)',
+              border: '1px solid var(--border-subtle)',
+              borderRadius: 'var(--radius-sm)',
+              padding: '12px 14px',
+              outline: 'none',
+              fontFamily: 'inherit',
+            }}
+          />
+          {/* Character count with fade */}
+          <motion.span
+            className="absolute bottom-2 right-3 text-xs mono"
+            style={{ color: 'var(--text-ghost)', fontSize: '10px' }}
+            animate={{ opacity: intent.length > 0 ? 0.6 : 0 }}
+            transition={{ duration: duration.micro }}
+          >
+            {intent.length}
+          </motion.span>
+        </div>
+      </motion.div>
+
+      {/* ── Generate ── */}
+      <motion.div
+        className="px-6 pb-6"
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.2, duration: duration.normal, ease: easing.out }}
+      >
+        <motion.button
+          onClick={handleTriggerPipeline}
+          disabled={!imageFile || !intent || isGenerating}
+          className="btn-primary w-full flex items-center justify-center gap-2"
+          style={{ padding: '12px 24px', position: 'relative', overflow: 'hidden' }}
+          whileTap={{ scale: 0.97 }}
+          whileHover={{ opacity: 0.92 }}
+          transition={{ duration: duration.press, ease: easing.out }}
+        >
+          {/* Shimmer overlay during generation */}
+          {isGenerating && (
+            <motion.div
+              className="absolute inset-0"
+              style={{
+                background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent)',
+                backgroundSize: '200% 100%',
+              }}
+              animate={{ backgroundPosition: ['200% 0', '-200% 0'] }}
+              transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
+            />
+          )}
+
+          {isGenerating ? (
+            <motion.span
+              className="flex items-center gap-2"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: duration.micro }}
+            >
+              {/* Animated dots */}
+              <span className="flex gap-0.5">
+                {[0, 1, 2].map((i) => (
+                  <motion.span
+                    key={i}
+                    className="w-1 h-1 rounded-full bg-current"
+                    animate={{ opacity: [0.3, 1, 0.3] }}
+                    transition={{ duration: 1.2, repeat: Infinity, ease: 'easeInOut', delay: i * 0.15 }}
+                  />
+                ))}
+              </span>
+              <span>Composing</span>
+            </motion.span>
+          ) : (
+            <>
+              <span>Generate Design</span>
+              <motion.svg
+                width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                animate={{ x: [0, 3, 0] }}
+                transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+              >
+                <line x1="5" y1="12" x2="19" y2="12"/><polyline points="12,5 19,12 12,19"/>
+              </motion.svg>
+            </>
+          )}
+        </motion.button>
+      </motion.div>
+
+      {/* ── Divider ── */}
+      <div className="divider mx-6" />
+
+      {/* ── Typography ── */}
+      <div className="px-6 py-6">
+        <motion.button
+          onClick={() => setFontsOpen(!fontsOpen)}
+          className="flex items-center justify-between w-full group"
+          whileTap={{ scale: 0.99 }}
+          transition={{ duration: duration.press }}
+        >
+          <h3 className="font-display text-xs uppercase tracking-widest" style={{ color: 'var(--text-muted)', letterSpacing: '0.15em' }}>
+            Custom Fonts
+          </h3>
+          <motion.svg
+            width="12" height="12" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+            style={{ color: 'var(--text-ghost)' }}
+            animate={{ rotate: fontsOpen ? 180 : 0 }}
+            transition={{ duration: duration.normal, ease: easing.out }}
+          >
+            <polyline points="6,9 12,15 18,9"/>
+          </motion.svg>
+        </motion.button>
+
+        <AnimatePresence>
+          {fontsOpen && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: duration.normal, ease: easing.out }}
+              className="overflow-hidden"
+            >
+              <motion.div
+                className="pt-4 space-y-3"
+                variants={staggerContainer}
+                initial="initial"
+                animate="animate"
+              >
+                {/* Uploaded fonts list */}
+                {store.fonts.length > 0 && (
+                  <div className="space-y-1 mb-4">
+                    {store.fonts.map((font: any, i: number) => (
+                      <motion.div
+                        key={i}
+                        className="flex items-center gap-2 py-1.5 px-2 rounded-md"
+                        variants={staggerItem}
+                        whileHover={{ backgroundColor: 'var(--surface-0)' }}
+                        transition={{ duration: duration.micro }}
+                      >
+                        <div className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--accent)' }} />
+                        <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                          {font.family_name || font.familyName}
+                        </span>
+                        <span className="text-xs" style={{ color: 'var(--text-ghost)' }}>
+                          · {font.category}
+                        </span>
+                      </motion.div>
+                    ))}
                   </div>
                 )}
-              </div>
-            )}
-          </div>
-        )}
 
-        {/* Tab 2: Font Library */}
-        {activeTab === 'assets' && (
-          <div className="space-y-4">
-            {/* Add Font */}
-            <div className="space-y-2 bg-zinc-950/40 p-3 rounded-xl border border-zinc-900">
-              <label className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider block">Add Custom Font</label>
-              
-              <div className="relative border border-dashed border-zinc-800 bg-zinc-950 p-2.5 text-center rounded cursor-pointer text-xs text-zinc-400 hover:border-zinc-700">
-                <input
-                  type="file"
-                  accept=".ttf,.otf,.woff,.woff2"
-                  onChange={handleFontChange}
-                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                />
-                <span>{fontFile ? fontFile.name : 'Choose Font File (TTF, OTF)'}</span>
-              </div>
-
-              {fontFile && (
-                <div className="space-y-2 mt-2.5">
+                {/* Upload form */}
+                <div className="space-y-2">
                   <input
-                    type="text"
-                    placeholder="Font Family Name (e.g. Gotham)"
-                    value={fontFamily}
-                    onChange={(e) => setFontFamily(e.target.value)}
-                    className="w-full bg-zinc-900 border border-zinc-800 rounded px-2 py-1.5 text-xs text-zinc-200 focus:outline-none"
+                    type="file"
+                    accept=".woff2,.woff,.ttf,.otf"
+                    onChange={handleFontChange}
+                    className="w-full text-xs"
+                    style={{ color: 'var(--text-muted)' }}
                   />
-                  
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setFontCategory('display')}
-                      className={`flex-1 py-1 text-[10px] font-bold rounded uppercase border ${
-                        fontCategory === 'display' 
-                          ? 'bg-zinc-800 border-zinc-700 text-white' 
-                          : 'bg-transparent border-transparent text-zinc-500'
-                      }`}
-                    >
-                      Display
-                    </button>
-                    <button
-                      onClick={() => setFontCategory('body')}
-                      className={`flex-1 py-1 text-[10px] font-bold rounded uppercase border ${
-                        fontCategory === 'body' 
-                          ? 'bg-zinc-800 border-zinc-700 text-white' 
-                          : 'bg-transparent border-transparent text-zinc-500'
-                      }`}
-                    >
-                      Body
-                    </button>
-                  </div>
-
-                  <button
-                    onClick={handleUploadFont}
-                    disabled={fontUploading}
-                    className="w-full bg-zinc-850 hover:bg-zinc-800 text-zinc-200 py-1.5 rounded text-xs font-semibold transition border border-zinc-800"
-                  >
-                    {fontUploading ? 'Uploading...' : 'Save Font Asset'}
-                  </button>
+                  <AnimatePresence>
+                    {fontFile && (
+                      <motion.div
+                        className="space-y-2"
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        exit={{ opacity: 0, height: 0 }}
+                        transition={{ duration: duration.normal, ease: easing.out }}
+                      >
+                        <input
+                          type="text"
+                          value={fontFamily}
+                          onChange={(e) => setFontFamily(e.target.value)}
+                          placeholder="Family name"
+                          className="w-full text-xs input-field"
+                          style={{
+                            background: 'transparent',
+                            border: '1px solid var(--border-subtle)',
+                            borderRadius: 'var(--radius-xs)',
+                            padding: '6px 10px',
+                            color: 'var(--text-primary)',
+                            outline: 'none',
+                          }}
+                        />
+                        <div className="flex gap-2">
+                          <select
+                            value={fontCategory}
+                            onChange={(e) => setFontCategory(e.target.value as any)}
+                            className="text-xs flex-1"
+                            style={{
+                              background: 'transparent',
+                              border: '1px solid var(--border-subtle)',
+                              borderRadius: 'var(--radius-xs)',
+                              padding: '6px 10px',
+                              color: 'var(--text-secondary)',
+                              outline: 'none',
+                            }}
+                          >
+                            <option value="display">Display</option>
+                            <option value="body">Body</option>
+                          </select>
+                          <motion.button
+                            onClick={handleUploadFont}
+                            disabled={fontUploading || !fontFamily}
+                            className="btn-ghost text-xs"
+                            style={{ padding: '6px 12px' }}
+                            whileTap={{ scale: 0.97 }}
+                            transition={{ duration: duration.press }}
+                          >
+                            {fontUploading ? (
+                              <motion.span
+                                animate={{ opacity: [0.5, 1, 0.5] }}
+                                transition={{ duration: 1.2, repeat: Infinity }}
+                              >
+                                …
+                              </motion.span>
+                            ) : 'Upload'}
+                          </motion.button>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
-              )}
-            </div>
-
-            {/* List Active Fonts */}
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-zinc-400 uppercase tracking-wide">Registered Fonts</label>
-              <div className="space-y-1.5 max-h-[220px] overflow-y-auto pr-1">
-                {store.fonts.map((f) => (
-                  <div key={f.id} className="flex items-center justify-between bg-zinc-950/30 p-2 rounded border border-zinc-900 text-xs">
-                    <div className="flex flex-col">
-                      <span className="font-semibold text-zinc-200">{f.familyName}</span>
-                      <span className="text-[9px] text-zinc-500 capitalize">{f.category} Font</span>
-                    </div>
-                    <span className="text-[9px] bg-zinc-900 text-zinc-400 px-1.5 py-0.5 rounded border border-zinc-800">
-                      {f.file_path.startsWith('google:') ? 'Google' : 'Local'}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Tab 3: Exports & SQLite Saves */}
-        {activeTab === 'export' && (
-          <div className="space-y-4">
-            {store.activeJob.id ? (
-              <div className="space-y-3">
-                {/* Approve Layout */}
-                <button
-                  onClick={() => store.approveDesign()}
-                  className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs py-3 rounded-lg flex items-center justify-center gap-1.5 transition shadow-lg shadow-emerald-500/10"
-                >
-                  <ShieldCheck className="w-4 h-4" />
-                  <span>Approve & Store to Memory</span>
-                </button>
-
-                <div className="border-t border-zinc-800 my-4 pt-4 space-y-2.5">
-                  <label className="text-xs font-bold text-zinc-400 uppercase tracking-wide block">Local Downloads</label>
-                  
-                  {/* Download PNG */}
-                  <button
-                    onClick={onDownloadPng}
-                    className="w-full bg-zinc-900 hover:bg-zinc-850 text-zinc-200 border border-zinc-800 font-medium text-xs py-2.5 rounded-lg flex items-center justify-center gap-1.5 transition"
-                  >
-                    <Download className="w-4 h-4 text-blue-400" />
-                    <span>Download Rendered PNG</span>
-                  </button>
-
-                  {/* Download JSON Coordinates */}
-                  <button
-                    onClick={handleDownloadJson}
-                    className="w-full bg-zinc-900 hover:bg-zinc-850 text-zinc-200 border border-zinc-800 font-medium text-xs py-2.5 rounded-lg flex items-center justify-center gap-1.5 transition"
-                  >
-                    <FileText className="w-4 h-4 text-purple-400" />
-                    <span>Download Layout JSON</span>
-                  </button>
-
-                  {/* Export HTML Project */}
-                  <button
-                    onClick={onDownloadHtml}
-                    className="w-full bg-zinc-900 hover:bg-zinc-850 text-zinc-200 border border-zinc-800 font-medium text-xs py-2.5 rounded-lg flex items-center justify-center gap-1.5 transition"
-                  >
-                    <Download className="w-4 h-4 text-amber-400" />
-                    <span>Export Standalone HTML</span>
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="text-center text-xs text-zinc-500 p-8 italic">
-                Awaiting layout generation to show export triggers.
-              </div>
-            )}
-          </div>
-        )}
-
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
+
+      {/* ── Divider ── */}
+      <div className="divider mx-6" />
+
+      {/* ── Design Reasoning (when available) ── */}
+      <AnimatePresence>
+        {store.activeJob.layout && (
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: duration.moderate, ease: easing.out }}
+            className="px-6 py-6"
+          >
+            <h3 className="font-display text-xs uppercase tracking-widest mb-4" style={{ color: 'var(--text-muted)', letterSpacing: '0.15em' }}>
+              Design Reasoning
+            </h3>
+            <motion.div
+              className="space-y-4"
+              variants={staggerContainer}
+              initial="initial"
+              animate="animate"
+            >
+              {store.activeJob.layout.reasoning && (
+                <>
+                  <ReasoningItem label="Strategy" value={store.activeJob.layout.reasoning.whyStrategy} index={0} />
+                  <ReasoningItem label="Placements" value={store.activeJob.layout.reasoning.whyPlacements} index={1} />
+                  <ReasoningItem label="Colors" value={store.activeJob.layout.reasoning.whyColors} index={2} />
+                  <ReasoningItem label="Hierarchy" value={store.activeJob.layout.reasoning.whyHierarchy} index={3} />
+                  <ReasoningItem label="Spacing" value={store.activeJob.layout.reasoning.whySpacing} index={4} />
+                </>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Spacer */}
+      <div className="flex-1" />
+
+      {/* ── Actions (when design is ready) ── */}
+      <AnimatePresence>
+        {store.activeJob.html && store.activeJob.status === 'completed' && (
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 8 }}
+            transition={{ duration: duration.normal, ease: easing.out }}
+            className="px-6 py-6 mt-auto"
+            style={{ borderTop: '1px solid var(--border-subtle)' }}
+          >
+            <div className="flex gap-2">
+              <motion.button
+                onClick={() => store.approveDesign()}
+                className="btn-primary flex-1 text-xs flex items-center justify-center gap-1.5"
+                whileTap={{ scale: 0.97 }}
+                transition={{ duration: duration.press }}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20,6 9,17 4,12"/>
+                </svg>
+                Approve
+              </motion.button>
+              <motion.button
+                onClick={() => store.resetJob()}
+                className="btn-ghost flex-1 text-xs"
+                whileTap={{ scale: 0.97 }}
+                transition={{ duration: duration.press }}
+              >
+                Reset
+              </motion.button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
+
+// ── Design Reasoning Item — with stagger animation ──────────────────────────
+
+function ReasoningItem({ label, value, index }: { label: string; value: string; index: number }) {
+  if (!value) return null;
+  return (
+    <motion.div
+      initial={{ opacity: 0, x: -6 }}
+      animate={{ opacity: 1, x: 0 }}
+      transition={{ delay: index * 0.06, duration: duration.normal, ease: easing.out }}
+    >
+      <span className="text-xs font-medium uppercase tracking-wider" style={{ color: 'var(--text-ghost)', letterSpacing: '0.08em' }}>
+        {label}
+      </span>
+      <p className="text-xs mt-1 leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+        {value}
+      </p>
+    </motion.div>
+  );
+}
+
 export default ControlPanel;

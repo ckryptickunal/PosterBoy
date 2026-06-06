@@ -15,7 +15,17 @@ const TypographyTokensSchema = {
     alignment: { type: 'STRING', description: 'Text alignment matching layout logic: "left", "center", or "right".' },
     fontWeightDisplay: { type: 'STRING', description: 'Font weight for display/headline (e.g. "700", "800", "bold", "normal").' },
     fontWeightBody: { type: 'STRING', description: 'Font weight for body/subheadline (e.g. "400", "300", "normal", "light").' },
-    reasoning: { type: 'STRING', description: 'Detailed visual explanation of typography selection, design choices, and size settings relative to the campaign concept.' }
+    reasoning: {
+      type: 'OBJECT',
+      properties: {
+        whyFont: { type: 'STRING', description: 'Why this display and body font pairing was selected for the campaign.' },
+        whyWeight: { type: 'STRING', description: 'Why this display and body weight combination was chosen for emphasis.' },
+        whySize: { type: 'STRING', description: 'Why this headline, subheadline, and body size hierarchy was selected.' },
+        whyAlignment: { type: 'STRING', description: 'Why this text alignment (left, center, right) fits the composition.' },
+        whySpacing: { type: 'STRING', description: 'Why this letter tracking and line height spacing was selected.' }
+      },
+      required: ['whyFont', 'whyWeight', 'whySize', 'whyAlignment', 'whySpacing']
+    }
   },
   required: [
     'displayFont', 'bodyFont', 'headlineSize', 'subheadlineSize',

@@ -1,82 +1,164 @@
-import { callAgent } from './gemini';
-import { VisionAnalysis, CreativeDirectorOutput, Concept } from '@/types/agents';
-
-const ConceptSchema = {
-  type: 'OBJECT',
-  properties: {
-    name: { type: 'STRING', description: 'Concept identifier: A, B, or C' },
-    communicationGoal: { type: 'STRING', description: 'Clear message of what the design is trying to convey.' },
-    emotionalGoal: { type: 'STRING', description: 'Feeling or mood to evoke (e.g., luxury, excitement, trust, tech sleekness).' },
-    visualStrategy: { type: 'STRING', description: 'Visual style direction (e.g., High-contrast editorial, minimal luxury white-space, bold typography overlays).' },
-    hierarchyStrategy: { type: 'STRING', description: 'Instruction on text element priority, reading order, and size differentiation.' },
-    ctaStrategy: { type: 'STRING', description: 'Strategy for the CTA button style, placement, and impact.' },
-    campaignType: { type: 'STRING', description: 'e.g. product_announcement, sale_promo, brand_awareness, quote_editorial' },
-    internalScore: { type: 'INTEGER', description: 'Score out of 100 on how well this concept matches the user intent and composition' },
-    rationale: { type: 'STRING', description: 'Brief reasoning for why this concept was proposed and how it scores.' }
-  },
-  required: [
-    'name', 'communicationGoal', 'emotionalGoal', 'visualStrategy',
-    'hierarchyStrategy', 'ctaStrategy', 'campaignType', 'internalScore', 'rationale'
-  ]
-};
-
-const CreativeDirectorOutputSchema = {
-  type: 'OBJECT',
-  properties: {
-    concepts: {
-      type: 'ARRAY',
-      items: ConceptSchema,
-      description: 'Three distinct creative concepts generated based on the image analysis and user intent.'
-    },
-    selectedConceptName: { type: 'STRING', description: 'Must be one of "A", "B", or "C" indicating the highest scoring concept.' },
-    selectedConcept: ConceptSchema
-  },
-  required: ['concepts', 'selectedConceptName', 'selectedConcept']
-};
-
 /**
- * Creative Director Agent: Ideates three concept directions, scores them, and picks the best.
+ * Design Strategist Agent — PosterBoy V2
+ * ════════════════════════════════════════
+ * Replaces the Creative Director Agent.
+ * 
+ * Instead of choosing "campaign types" and "industry concepts",
+ * this agent reasons about DESIGN OBJECTIVES:
+ *   - Preserve focal subject
+ *   - Maximize readability
+ *   - Create strong reading flow
+ *   - Establish visual hierarchy
+ *   - Create emotional tension
+ *
+ * It also recommends a layout strategy based on the image analysis.
  */
-export async function runCreativeDirectorAgent(
-  userIntent: string,
-  vision: VisionAnalysis
-): Promise<CreativeDirectorOutput> {
-  const systemInstruction = `You are a Senior Creative Director. Your job is to read a client's design intent, review a Vision Analysis of their background image, and propose 3 distinct creative concepts (Concept A, B, and C).
 
-CRITICAL RULES:
-1. The USER INTENT is your creative brief. All concepts must serve that exact subject — do NOT substitute products, brands, or themes.
-2. Concept A should focus on Premium/Luxury (generous whitespace, delicate alignment).
-3. Concept B should focus on Editorial/Lifestyle (text-image tension, asymmetric balance).
-4. Concept C should focus on Commercial/Conversion (clear CTA prominence, bold highlights).
-5. Score each concept out of 100 based on fit with the image composition and user intent.
-6. Output strictly JSON conforming to the schema.`;
+import { callAgent } from './gemini';
+import { VisionAnalysis, DesignStrategy, DesignStrategyOutput, LayoutStrategy } from '@/types/agents';
+
+const DesignStrategySchema = {
+  type: 'OBJECT',
+  properties: {
+    strategies: {
+      type: 'ARRAY',
+      items: {
+        type: 'OBJECT',
+        properties: {
+          designThinking: {
+            type: 'OBJECT',
+            properties: {
+              visualSubject:        { type: 'STRING', description: 'What is the main visual subject in this image?' },
+              communicationGoal:    { type: 'STRING', description: 'What must this design communicate?' },
+              viewerNoticeFirst:    { type: 'STRING', description: 'What should the viewer notice first?' },
+              viewerNoticeSecond:   { type: 'STRING', description: 'What should they notice second?' },
+              viewerNoticeThird:    { type: 'STRING', description: 'What should they notice third?' },
+              safestVisualSpace:    { type: 'STRING', description: 'Where is the safest space for text that won\'t compete with the subject?' },
+              strongestVisualSpace: { type: 'STRING', description: 'Where is the strongest visual anchor point?' },
+              emotionalFeeling:     { type: 'STRING', description: 'What emotion should this design evoke?' },
+              necessaryInfo:        { type: 'STRING', description: 'What information is absolutely necessary?' },
+              elementsRemoved:      { type: 'STRING', description: 'What elements should be removed to strengthen the design?' },
+            },
+            required: ['visualSubject', 'communicationGoal', 'viewerNoticeFirst', 'viewerNoticeSecond', 'viewerNoticeThird', 'safestVisualSpace', 'strongestVisualSpace', 'emotionalFeeling', 'necessaryInfo', 'elementsRemoved'],
+          },
+          communicationHierarchy: {
+            type: 'OBJECT',
+            properties: {
+              primaryMessage:    { type: 'STRING', description: 'The single most important message' },
+              secondaryMessage:  { type: 'STRING', description: 'Supporting context' },
+              supportingMessage: { type: 'STRING', description: 'Additional details' },
+              actionMessage:     { type: 'STRING', description: 'The call to action' },
+            },
+            required: ['primaryMessage', 'secondaryMessage', 'supportingMessage', 'actionMessage'],
+          },
+          designObjectives: {
+            type: 'ARRAY',
+            items: {
+              type: 'OBJECT',
+              properties: {
+                objective: { type: 'STRING', description: 'Design objective (e.g., "preserve focal subject", "maximize readability")' },
+                priority:  { type: 'INTEGER', description: 'Priority 1 (highest) to 5 (lowest)' },
+                reasoning: { type: 'STRING', description: 'Why this objective matters for this specific image' },
+              },
+              required: ['objective', 'priority', 'reasoning'],
+            },
+          },
+          recommendedStrategy: {
+            type: 'STRING',
+            enum: ['hero-left', 'hero-right', 'hero-overlay', 'editorial-split', 'centered-story', 'minimal-premium', 'feature-focused', 'magazine', 'narrative', 'information-dense'],
+            description: 'Best layout strategy for this image and communication goal',
+          },
+          strategyReasoning: { type: 'STRING', description: 'Why this layout strategy is best' },
+          emotionalGoal:     { type: 'STRING', description: 'Target emotional response' },
+          visualTone:        { type: 'STRING', description: 'Visual style direction (e.g. "premium minimalist")' },
+          internalScore:     { type: 'INTEGER', description: 'Self-assessed confidence 0-100' },
+        },
+        required: ['designThinking', 'communicationHierarchy', 'designObjectives', 'recommendedStrategy', 'strategyReasoning', 'emotionalGoal', 'visualTone', 'internalScore'],
+      },
+    },
+    selectedStrategy: {
+      type: 'OBJECT',
+      description: 'Copy of the highest-scoring strategy from the array above.',
+      properties: {
+        designThinking: { type: 'OBJECT', properties: {}, description: 'Same structure as above' },
+        communicationHierarchy: { type: 'OBJECT', properties: {}, description: 'Same structure as above' },
+        designObjectives: { type: 'ARRAY', items: { type: 'OBJECT', properties: {} } },
+        recommendedStrategy: { type: 'STRING' },
+        strategyReasoning: { type: 'STRING' },
+        emotionalGoal: { type: 'STRING' },
+        visualTone: { type: 'STRING' },
+        internalScore: { type: 'INTEGER' },
+      },
+    },
+  },
+  required: ['strategies', 'selectedStrategy'],
+};
+
+export async function runDesignStrategistAgent(
+  intent: string,
+  vision: VisionAnalysis
+): Promise<DesignStrategyOutput> {
+  const systemInstruction = `You are a DESIGN STRATEGIST — not a creative director, not an art director.
+
+You analyze images and communication goals to determine HOW a design should be structured.
+
+You do NOT think in industries (luxury, fashion, SaaS).
+You think in DESIGN PATTERNS:
+  - Visual weight distribution
+  - Information density
+  - Communication hierarchy
+  - Emotional tension
+  - Reading flow
+
+Instead of "rules" you produce DESIGN OBJECTIVES — flexible goals ranked by priority:
+  - "Preserve focal subject" (priority 1)
+  - "Maximize readability" (priority 2)
+  - "Create reading flow from headline to CTA" (priority 3)
+
+You also recommend a LAYOUT STRATEGY — an archetype that CSS will implement:
+  - hero-left, hero-right, hero-overlay, editorial-split, centered-story,
+    minimal-premium, feature-focused, magazine, narrative, information-dense
+
+Your strategy recommendation MUST be based on the IMAGE COMPOSITION:
+  - Subject on right side of image → hero-left (content left)
+  - Subject on left side → hero-right (content right)
+  - Subject centered or fills frame → hero-overlay or centered-story
+  - Strong negative space → minimal-premium
+  - Multiple products → feature-focused or information-dense
+
+Generate 2 competing strategies. Select the best one.
+Output strictly JSON.`;
 
   const prompt = `
-USER INTENT (CREATIVE BRIEF — all concepts must serve this):
-"${userIntent}"
+USER INTENT: "${intent}"
 
-VISION ANALYSIS:
-- Dimensions: ${vision.width}x${vision.height} (Aspect: ${vision.aspectRatio})
-- Style Classification: ${vision.designStyleClassification}
+IMAGE ANALYSIS:
+- Composition: ${vision.compositionType}
+- Subject Count: ${vision.subjectCount}
+- Subject Dominance: ${vision.subjectDominance}
+- Negative Space: ${(vision.negativeSpaceRatio * 100).toFixed(0)}%
+- Visual Complexity: ${vision.visualComplexity}
+- Contrast: ${vision.imageContrast}
 - Dominant Colors: ${vision.dominantColors.join(', ')}
-- Composition: ${vision.compositionStyle}
-- Visual Density: ${vision.visualDensity}
-- Face Regions: ${vision.faceRegions.length}
-- Product Regions: ${vision.productRegions.length}
-- Empty (text-safe) Zones: ${vision.emptyRegions.length}
+- Has Faces: ${vision.faceRegions.length > 0 ? `Yes (${vision.faceRegions.length})` : 'No'}
+- Has Products: ${vision.productRegions.length > 0 ? `Yes (${vision.productRegions.length})` : 'No'}
+- Reading Flows: ${vision.readingFlowOpportunities.join(', ')}
+- Safe Text Zones: ${vision.safeTextRegions.length} zones available
 
-Generate 3 concepts (A, B, C) that are all about: "${userIntent}".
-Score them, and return the selected winner.
+VISUAL WEIGHT MAP:
+${vision.visualWeightMap?.map(w => `  ${w.regionType}: importance=${w.importanceScore}/100, attention=${w.attentionScore}/100, density=${w.visualDensity}/100, protection=${w.protectionPriority}/100`).join('\n') || '  Not available'}
+
+Analyze this image and intent. Produce 2 design strategies with ranked objectives. Select the stronger one.
 `;
 
   const result = await callAgent({
     prompt,
     systemInstruction,
-    responseSchema: CreativeDirectorOutputSchema,
-    temperature: 0.3
+    responseSchema: DesignStrategySchema,
+    temperature: 0.4,
   });
 
-  return result as CreativeDirectorOutput;
+  return result as DesignStrategyOutput;
 }
 
-export default runCreativeDirectorAgent;
+export default runDesignStrategistAgent;

@@ -1,27 +1,42 @@
 import { create } from 'zustand';
-import { VisionAnalysis, CopywriterOutput, TypographyTokens, LayoutOutput, LayoutElement, CriticOutput } from '@/types/agents';
+import {
+  VisionAnalysis,
+  CopywriterOutput,
+  TypographyTokens,
+  WebLayoutOutput,
+  DesignStrategy,
+} from '@/types/agents';
 
 export interface CritiqueLog {
   iteration: number;
   score: number;
   issues: string[];
   fixes: string[];
-  layout: LayoutOutput;
+  layout: WebLayoutOutput;
+}
+
+export interface EvolutionState {
+  totalGenerations: number;
+  totalCandidatesEvaluated: number;
+  scoreHistory: number[];
+  bestScore: number;
 }
 
 export interface ActiveJobState {
   id: string | null;
-  status: 'idle' | 'analyzing' | 'designing' | 'copywriting' | 'typography' | 'arranging' | 'rendering' | 'critiquing' | 'completed' | 'failed';
+  status: 'idle' | 'analyzing' | 'designing' | 'copywriting' | 'typography' | 'arranging' | 'evolving' | 'rendering' | 'critiquing' | 'completed' | 'failed';
   imageUrl: string | null;
   vision: VisionAnalysis | null;
-  concept: any | null;
+  strategy: DesignStrategy | null;
   copy: CopywriterOutput | null;
   typography: TypographyTokens | null;
-  layout: LayoutOutput | null;
+  layout: WebLayoutOutput | null;
+  html: string | null;
+  evolution: EvolutionState | null;
   critiqueLogs: CritiqueLog[];
   currentIteration: number;
   score: number | null;
-  logs: string[]; // Telemetry execution traces
+  logs: string[];
 }
 
 interface PosterBoyStore {
@@ -38,7 +53,6 @@ interface PosterBoyStore {
   updateConstitution: (newRules: string) => Promise<boolean>;
   uploadFont: (file: File, familyName: string, category: string) => Promise<boolean>;
   startDesignPipeline: (imageFile: File, intent: string) => Promise<void>;
-  updateElement: (id: string, updates: Partial<LayoutElement>) => void;
   runCritiqueLoop: (screenshotBase64: string) => Promise<void>;
   approveDesign: () => Promise<void>;
   resetJob: () => void;
@@ -49,10 +63,12 @@ const initialJobState: ActiveJobState = {
   status: 'idle',
   imageUrl: null,
   vision: null,
-  concept: null,
+  strategy: null,
   copy: null,
   typography: null,
   layout: null,
+  html: null,
+  evolution: null,
   critiqueLogs: [],
   currentIteration: 0,
   score: null,
@@ -71,17 +87,16 @@ export const useStore = create<PosterBoyStore>((set, get) => ({
   fetchInitialData: async () => {
     set({ isInitialLoading: true });
     try {
-      // 1. Fetch fonts
-      const fontRes = await fetch('/api/fonts');
-      const fontData = await fontRes.json();
-      
-      // 2. Fetch layout memory & history
-      const layoutRes = await fetch('/api/layouts');
-      const layoutData = await layoutRes.json();
-
-      // 3. Fetch constitution
-      const constRes = await fetch('/api/constitution');
-      const constData = await constRes.json();
+      const [fontRes, layoutRes, constRes] = await Promise.all([
+        fetch('/api/fonts'),
+        fetch('/api/layouts'),
+        fetch('/api/constitution'),
+      ]);
+      const [fontData, layoutData, constData] = await Promise.all([
+        fontRes.json(),
+        layoutRes.json(),
+        constRes.json(),
+      ]);
 
       set({
         fonts: fontData.success ? fontData.fonts : [],
@@ -129,7 +144,6 @@ export const useStore = create<PosterBoyStore>((set, get) => ({
       });
       const data = await res.json();
       if (data.success) {
-        // Refresh font list
         const fontRes = await fetch('/api/fonts');
         const fontData = await fontRes.json();
         set({ fonts: fontData.success ? fontData.fonts : [] });
@@ -159,14 +173,12 @@ export const useStore = create<PosterBoyStore>((set, get) => ({
       const formData = new FormData();
       formData.append('file', imageFile);
       formData.append('intent', intent);
-      // Pass list of custom fonts for typography matching
       formData.append('fonts', JSON.stringify(get().fonts));
 
-      // 1. Trigger initial generation
       set(state => ({
         activeJob: {
           ...state.activeJob,
-          logs: [...state.activeJob.logs, `[${new Date().toLocaleTimeString()}] Image uploaded. Launching Vision Analysis (Agent 1)...`]
+          logs: [...state.activeJob.logs, `[${new Date().toLocaleTimeString()}] Image uploaded. Launching Vision Analysis...`]
         }
       }));
 
@@ -180,6 +192,7 @@ export const useStore = create<PosterBoyStore>((set, get) => ({
         throw new Error(data.error || 'Generation failed');
       }
 
+      const evo = data.evolution;
       set(state => ({
         activeJob: {
           ...state.activeJob,
@@ -187,18 +200,26 @@ export const useStore = create<PosterBoyStore>((set, get) => ({
           status: 'rendering',
           imageUrl: data.imageUrl,
           vision: data.vision,
-          concept: data.concept,
+          strategy: data.strategy,
           copy: data.copy,
           typography: data.typography,
           layout: data.layout,
+          html: data.html,
+          evolution: evo || null,
+          score: evo?.bestScore || null,
           logs: [
             ...state.activeJob.logs,
-            `[${new Date().toLocaleTimeString()}] Vision Analysis Complete. Class: "${data.vision.designStyleClassification}", Aspect: "${data.vision.aspectRatio}"`,
-            `[${new Date().toLocaleTimeString()}] Creative Concept Selected (Agent 2): "${data.concept.name} - ${data.concept.visualStrategy}"`,
-            `[${new Date().toLocaleTimeString()}] Copy Generated (Agent 3): "${data.copy.headline}"`,
-            `[${new Date().toLocaleTimeString()}] Typography Selection (Agent 4): Display "${data.typography.displayFont}" paired with Body "${data.typography.bodyFont}"`,
-            `[${new Date().toLocaleTimeString()}] Initial Coordinate Placement Map Generated (Agent 5).`,
-            `[${new Date().toLocaleTimeString()}] Rendering design on client canvas...`
+            `Analyzing composition — ${data.vision.compositionType}, ${data.vision.aspectRatio}`,
+            `Evaluating visual hierarchy — "${data.strategy?.recommendedStrategy}" · ${data.strategy?.visualTone}`,
+            `Crafting copy — "${data.copy.headline}"`,
+            `Selecting typography — ${data.typography.displayFont} / ${data.typography.bodyFont}`,
+            ...(evo ? [
+              `Exploring ${evo.totalCandidatesEvaluated} layout directions across ${evo.totalGenerations} generations`,
+              `Best composition score: ${evo.bestScore}/100 — ${data.layout.strategy}`,
+            ] : [
+              `Layout: ${data.layout.strategy}`,
+            ]),
+            `Rendering final composition...`
           ]
         }
       }));
@@ -215,28 +236,6 @@ export const useStore = create<PosterBoyStore>((set, get) => ({
     }
   },
 
-  updateElement: (id: string, updates: Partial<LayoutElement>) => {
-    set(state => {
-      if (!state.activeJob.layout) return state;
-      const updatedElements = state.activeJob.layout.elements.map(el => {
-        if (el.id === id) {
-          return { ...el, ...updates };
-        }
-        return el;
-      });
-      return {
-        activeJob: {
-          ...state.activeJob,
-          layout: { elements: updatedElements },
-          logs: [
-            ...state.activeJob.logs,
-            `[HUMAN OVERRIDE] Adjusted '${id}' properties: ${JSON.stringify(updates)}`
-          ]
-        }
-      };
-    });
-  },
-
   runCritiqueLoop: async (screenshotBase64: string) => {
     const job = get().activeJob;
     if (!job.id || !job.layout || !job.vision) return;
@@ -249,7 +248,7 @@ export const useStore = create<PosterBoyStore>((set, get) => ({
         currentIteration: nextIteration,
         logs: [
           ...state.activeJob.logs,
-          `[${new Date().toLocaleTimeString()}] Capture canvas screenshot. Submitting to Critique Engine (Iteration #${nextIteration}/3)...`
+          `[${new Date().toLocaleTimeString()}] Capturing preview. Submitting to Critic (Iteration #${nextIteration})...`
         ]
       }
     }));
@@ -277,49 +276,35 @@ export const useStore = create<PosterBoyStore>((set, get) => ({
         score: data.score,
         issues: data.issues,
         fixes: data.fixes,
-        layout: data.repairedLayout || job.layout
+        layout: job.layout
       };
 
       const newLogs = [
         ...get().activeJob.logs,
-        `[${new Date().toLocaleTimeString()}] Visual critique completed. Core score: ${data.score}/100.`,
-        ...data.issues.map((iss: string) => `[CRITIQUE ISSUE] - ${iss}`),
-        ...(data.fixes.length > 0 ? [`[RECOMMENDED REPAIRS]:`, ...data.fixes.map((fx: string) => `  * ${fx}`)] : [])
+        `[${new Date().toLocaleTimeString()}] Critique completed. Score: ${data.score}/100.`,
+        ...data.issues.map((iss: string) => `[ISSUE] ${iss}`),
+        ...(data.fixes.length > 0 ? [`[FIXES]:`, ...data.fixes.map((fx: string) => `  * ${fx}`)] : [])
       ];
 
-      if (data.status === 'repaired' && data.repairedLayout) {
-        newLogs.push(`[${new Date().toLocaleTimeString()}] Repair Agent (Agent 7) successfully repositioned layout coordinates. Re-rendering...`);
-        set(state => ({
-          activeJob: {
-            ...state.activeJob,
-            status: 'rendering',
-            layout: data.repairedLayout,
-            score: data.score,
-            critiqueLogs: [...state.activeJob.critiqueLogs, critiqueLog],
-            logs: newLogs
-          }
-        }));
-      } else {
-        newLogs.push(`[${new Date().toLocaleTimeString()}] Pipeline completed! Score: ${data.score}/100.`);
-        set(state => ({
-          activeJob: {
-            ...state.activeJob,
-            status: 'completed',
-            score: data.score,
-            critiqueLogs: [...state.activeJob.critiqueLogs, critiqueLog],
-            logs: newLogs
-          }
-        }));
-
-        // Refresh database history
-        const layoutRes = await fetch('/api/layouts');
-        const layoutData = await layoutRes.json();
-        if (layoutData.success) {
-          set({
-            layoutMemory: layoutData.layouts,
-            jobsHistory: layoutData.jobs
-          });
+      newLogs.push(`[${new Date().toLocaleTimeString()}] Pipeline completed! Score: ${data.score}/100.`);
+      set(state => ({
+        activeJob: {
+          ...state.activeJob,
+          status: 'completed',
+          score: data.score,
+          critiqueLogs: [...state.activeJob.critiqueLogs, critiqueLog],
+          logs: newLogs
         }
+      }));
+
+      // Refresh history
+      const layoutRes = await fetch('/api/layouts');
+      const layoutData = await layoutRes.json();
+      if (layoutData.success) {
+        set({
+          layoutMemory: layoutData.layouts,
+          jobsHistory: layoutData.jobs
+        });
       }
 
     } catch (err: any) {
@@ -328,7 +313,7 @@ export const useStore = create<PosterBoyStore>((set, get) => ({
         activeJob: {
           ...state.activeJob,
           status: 'failed',
-          logs: [...state.activeJob.logs, `[CRITIQUE LOOP ERROR] ${err.message || err}`]
+          logs: [...state.activeJob.logs, `[CRITIQUE ERROR] ${err.message || err}`]
         }
       }));
     }
@@ -342,26 +327,37 @@ export const useStore = create<PosterBoyStore>((set, get) => ({
       set(state => ({
         activeJob: {
           ...state.activeJob,
-          logs: [...state.activeJob.logs, `[${new Date().toLocaleTimeString()}] Design manually approved. Indexing to Layout Memory database...`]
+          logs: [...state.activeJob.logs, `[${new Date().toLocaleTimeString()}] Design approved. Saving to memory...`]
         }
       }));
 
-      const style = job.vision.designStyleClassification || 'minimal';
-      const imageType = job.vision.productRegions.length > 0 ? job.vision.productRegions[0].label || 'product' : 'general';
+      const visualGenome = {
+        subjectCount: job.vision.subjectCount || 0,
+        negativeSpaceRatio: job.vision.negativeSpaceRatio || 0,
+        visualComplexity: job.vision.visualComplexity || 'medium',
+        subjectDominance: job.vision.subjectDominance || 'medium',
+        compositionType: job.vision.compositionType || 'centered',
+        imageContrast: job.vision.imageContrast || 'medium'
+      };
+
+      const communicationGenome = {
+        layoutStrategy: job.layout.strategy,
+        spacing: job.layout.designTokens.spacing,
+      };
 
       await fetch('/api/layouts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          imageType,
-          goal: 'user_approval',
-          style,
+          visualGenome,
+          communicationGenome,
+          layoutGenome: { strategy: job.layout.strategy },
+          decisions: [{ decision: "User approved layout", reason: "Manual approval", outcome_score: 100 }],
           score: job.score || 95,
           layoutJson: JSON.stringify(job.layout)
         })
       });
 
-      // Refresh layout memory
       const layoutRes = await fetch('/api/layouts');
       const layoutData = await layoutRes.json();
       if (layoutData.success) {
@@ -374,7 +370,7 @@ export const useStore = create<PosterBoyStore>((set, get) => ({
       set(state => ({
         activeJob: {
           ...state.activeJob,
-          logs: [...state.activeJob.logs, `[${new Date().toLocaleTimeString()}] Indexed successfully. Ready for export.`].filter(Boolean)
+          logs: [...state.activeJob.logs, `[${new Date().toLocaleTimeString()}] Saved to memory. Ready for export.`]
         }
       }));
 

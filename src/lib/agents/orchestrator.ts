@@ -1,34 +1,62 @@
+/**
+ * Orchestrator V3 — PosterBoy Evolutionary Pipeline
+ * ══════════════════════════════════════════════════════
+ * Pipeline:
+ *   Vision → Design Strategist → Copywriter + Typography → Evolutionary Search → HTML Compose
+ *
+ * Key differences from V2:
+ * - Evolutionary search replaces 3-candidate + repair loops
+ * - 6 initial candidates, scored in parallel
+ * - Best 2 survive, mutate, repeat until convergence
+ * - Full history stored (scores, layouts, reasoning, typography)
+ * - Scoring hierarchy: visual hierarchy is objective, collision is constraint
+ */
+
 import { randomUUID } from 'crypto';
 import db from '../db';
 import runVisionAgent from './visionAgent';
-import runCreativeDirectorAgent from './creativeDirectorAgent';
+import runDesignStrategistAgent from './creativeDirectorAgent';
 import runCopywriterAgent from './copywriterAgent';
 import runTypographyAgent from './typographyAgent';
-import runLayoutAgent from './layoutAgent';
+import { runEvolutionarySearch } from './localOptimizationEngine';
 import runCriticAgent from './criticAgent';
-import runRepairAgent from './repairAgent';
-import runGeometryHelper from '../pythonRunner';
+import { composeHTML } from '../htmlComposer';
 import { pipelineLog, agentLog, saveJobReplay, writePerformanceStats } from '../logger';
-import { validateLayout } from '../constraintValidator';
-import { VisionAnalysis, CopywriterOutput, TypographyTokens, LayoutOutput, CriticOutput } from '@/types/agents';
+import {
+  VisionAnalysis,
+  CopywriterOutput,
+  TypographyTokens,
+  WebLayoutOutput,
+  DesignStrategy,
+  LayoutStrategy,
+  EvolutionResult,
+} from '@/types/agents';
 
 export interface GenerationResult {
   jobId: string;
   vision: VisionAnalysis;
-  concept: any;
+  strategy: DesignStrategy;
   copy: CopywriterOutput;
   typography: TypographyTokens;
-  layout: LayoutOutput;
+  layout: WebLayoutOutput;
+  html: string;
+  evolution: {
+    totalGenerations: number;
+    totalCandidatesEvaluated: number;
+    scoreHistory: number[];
+    bestScore: number;
+  };
 }
 
 /**
- * Executes Agents 1-5 to produce the initial design candidate.
+ * Executes the V3 evolutionary pipeline.
  *
- * Parallelisation graph:
+ * Pipeline graph:
  *   Vision
- *     └─ Promise.all(CreativeDirector, TypographyPrep, MemoryRetrieval)
- *           └─ Copywriter  (depends on Creative Director)
- *                 └─ Layout  (depends on Copy + Typography + Memory + Vision)
+ *     └─ Design Strategist (parallel with Memory)
+ *           └─ Copywriter + Typography (parallel)
+ *                 └─ Evolutionary Search (6 candidates → score → mutate → repeat)
+ *                       └─ HTML Compose (deterministic, no LLM)
  */
 export async function generateInitialLayout(
   imageName: string,
@@ -39,7 +67,7 @@ export async function generateInitialLayout(
 ): Promise<GenerationResult> {
   const jobId = randomUUID();
   const pipelineStart = Date.now();
-  const agentTimings: Record<string, { start: number; end?: number; tokens?: number }> = {};
+  const agentTimings: Record<string, { start: number; end?: number }> = {};
 
   db.prepare(`
     INSERT INTO jobs (id, status, image_path, intent, created_at, updated_at)
@@ -49,112 +77,91 @@ export async function generateInitialLayout(
   pipelineLog(`JOB_START job_id=${jobId} intent="${intent}"`);
 
   try {
-    // ── STAGE 1: Vision (must complete first — everything depends on it) ──────
+    // ── STAGE 1: Vision Analysis ──────────────────────────────────────────────
     agentTimings['Vision'] = { start: Date.now() };
     agentLog('vision', `[${jobId}] Vision Agent STARTED`);
     const vision = await runVisionAgent(imageBase64, mimeType);
     agentTimings['Vision'].end = Date.now();
     const visionMs = agentTimings['Vision'].end - agentTimings['Vision'].start;
-    agentLog('vision', `[${jobId}] Vision Agent COMPLETED  duration=${(visionMs / 1000).toFixed(2)}s`);
+    agentLog('vision', `[${jobId}] Vision Agent COMPLETED duration=${(visionMs / 1000).toFixed(2)}s`);
     pipelineLog(`AGENT_COMPLETE agent=Vision job_id=${jobId} duration=${visionMs}ms`);
 
     db.prepare('UPDATE jobs SET status = ?, updated_at = ? WHERE id = ?')
-      .run('creative_direction', new Date().toISOString(), jobId);
+      .run('designing', new Date().toISOString(), jobId);
 
-    // ── STAGE 2: Parallel fan-out — CreativeDirector + Memory + Constitution ──
-    // NOTE: Typography is intentionally NOT in this group — it requires the
-    // actual winning Concept from Creative Director, not a speculative hint.
-    // Running it speculatively with undefined concept fields causes hallucination.
-    pipelineLog(`PARALLEL_START job_id=${jobId} agents=[CreativeDirector,MemoryRetrieval,Constitution]`);
+    // ── STAGE 2: Design Strategist (parallel with memory retrieval) ───────────
+    pipelineLog(`PARALLEL_START job_id=${jobId} agents=[DesignStrategist,Memory]`);
 
-    const [cdOutput, memoryRecords, rulesText] = await Promise.all([
-      // Creative Director (Agent 2)
+    const [strategyOutput, memoryRecords] = await Promise.all([
       (async () => {
-        agentTimings['CreativeDirector'] = { start: Date.now() };
-        agentLog('creative', `[${jobId}] Creative Director STARTED`);
-        const out = await runCreativeDirectorAgent(intent, vision);
-        agentTimings['CreativeDirector'].end = Date.now();
-        const ms = agentTimings['CreativeDirector'].end - agentTimings['CreativeDirector'].start;
-        agentLog('creative', `[${jobId}] Creative Director COMPLETED  duration=${(ms / 1000).toFixed(2)}s`);
-        pipelineLog(`AGENT_COMPLETE agent=CreativeDirector job_id=${jobId} duration=${ms}ms`);
+        agentTimings['DesignStrategist'] = { start: Date.now() };
+        agentLog('strategy', `[${jobId}] Design Strategist STARTED`);
+        const out = await runDesignStrategistAgent(intent, vision);
+        agentTimings['DesignStrategist'].end = Date.now();
+        const ms = agentTimings['DesignStrategist'].end - agentTimings['DesignStrategist'].start;
+        agentLog('strategy', `[${jobId}] Design Strategist COMPLETED duration=${(ms / 1000).toFixed(2)}s`);
+        pipelineLog(`AGENT_COMPLETE agent=DesignStrategist job_id=${jobId} duration=${ms}ms`);
         return out;
       })(),
 
-      // Memory Retrieval (SQLite — synchronous but wrapped async)
+      // Memory Retrieval
       (async () => {
-        const style = vision.designStyleClassification || 'minimal';
-        const imageType = vision.productRegions.length > 0
-          ? vision.productRegions[0].label || 'product'
-          : 'general';
         const records = db.prepare(`
-          SELECT style, image_type, layout_json, score
+          SELECT visual_genome_json, communication_genome_json, layout_json, score
           FROM layout_memory
-          WHERE style = ? OR image_type = ?
-          ORDER BY score DESC LIMIT 3
-        `).all(style, imageType) as Array<{ style: string; image_type: string; layout_json: string; score: number }>;
+          ORDER BY score DESC LIMIT 10
+        `).all() as Array<{ visual_genome_json: string; communication_genome_json: string; layout_json: string; score: number }>;
         pipelineLog(`MEMORY_RETRIEVED job_id=${jobId} matches=${records.length}`);
         return records;
-      })(),
-
-      // Constitution (sync SQLite)
-      (async () => {
-        const row = db.prepare('SELECT rules_text FROM constitutions WHERE active = 1 ORDER BY version DESC LIMIT 1').get() as { rules_text: string } | undefined;
-        return row?.rules_text || '';
       })(),
     ]);
 
     pipelineLog(`PARALLEL_DONE job_id=${jobId}`);
 
-    const selectedConcept = cdOutput.selectedConcept;
+    const selectedStrategy = strategyOutput.selectedStrategy;
+    agentLog('strategy', `[${jobId}] Selected strategy: ${selectedStrategy?.recommendedStrategy || 'unknown'} (score: ${selectedStrategy?.internalScore || 0})`);
+
     db.prepare('UPDATE jobs SET status = ?, updated_at = ? WHERE id = ?')
       .run('copywriting', new Date().toISOString(), jobId);
 
-    // ── STAGE 3: Copywriter + 3 Typography Candidates in parallel ────────────
-    pipelineLog(`PARALLEL_START job_id=${jobId} agents=[Copywriter,Typography_A,Typography_B,Typography_C]`);
+    // ── STAGE 3: Copywriter + Typography in parallel ──────────────────────────
+    pipelineLog(`PARALLEL_START job_id=${jobId} agents=[Copywriter,Typography]`);
 
-    const [copy, typographyA, typographyB, typographyC] = await Promise.all([
-      // Copywriter (Agent 3)
+    // Build a Concept-compatible object for the copywriter (bridge to old interface)
+    const conceptBridge = {
+      campaignType: selectedStrategy.visualTone || 'premium',
+      communicationGoal: selectedStrategy.designThinking?.communicationGoal || intent,
+      emotionalGoal: selectedStrategy.emotionalGoal || 'inspire action',
+      hierarchyStrategy: selectedStrategy.communicationHierarchy?.primaryMessage || intent,
+      ctaStrategy: selectedStrategy.communicationHierarchy?.actionMessage || 'Learn More',
+    };
+
+    const [copy, typography] = await Promise.all([
+      // Copywriter
       (async () => {
         agentTimings['Copywriter'] = { start: Date.now() };
         agentLog('copywriter', `[${jobId}] Copywriter STARTED`);
-        const out = await runCopywriterAgent(intent, selectedConcept, vision);
+        const out = await runCopywriterAgent(intent, conceptBridge as any, vision);
         agentTimings['Copywriter'].end = Date.now();
         const ms = agentTimings['Copywriter'].end - agentTimings['Copywriter'].start;
-        agentLog('copywriter', `[${jobId}] Copywriter COMPLETED  duration=${(ms / 1000).toFixed(2)}s`);
+        agentLog('copywriter', `[${jobId}] Copywriter COMPLETED duration=${(ms / 1000).toFixed(2)}s`);
         pipelineLog(`AGENT_COMPLETE agent=Copywriter job_id=${jobId} duration=${ms}ms`);
         return out;
       })(),
 
-      // Typography Candidate A: High contrast / Bold
+      // Typography
       (async () => {
-        agentTimings['Typography_A'] = { start: Date.now() };
-        agentLog('typography', `[${jobId}] Typography Agent A (Bold) STARTED`);
-        const out = await runTypographyAgent(selectedConcept, availableFonts, 'Focus on high contrast, dramatic sizing, and bold weights. Choose a strong display font.');
-        agentTimings['Typography_A'].end = Date.now();
-        const ms = agentTimings['Typography_A'].end - agentTimings['Typography_A'].start;
-        agentLog('typography', `[${jobId}] Typography Agent A COMPLETED  duration=${(ms / 1000).toFixed(2)}s`);
-        return out;
-      })(),
-
-      // Typography Candidate B: Elegant Editorial
-      (async () => {
-        agentTimings['Typography_B'] = { start: Date.now() };
-        agentLog('typography', `[${jobId}] Typography Agent B (Editorial) STARTED`);
-        const out = await runTypographyAgent(selectedConcept, availableFonts, 'Focus on elegant editorial layouts with generous tracking and moderate sizes. Choose a sophisticated pairing.');
-        agentTimings['Typography_B'].end = Date.now();
-        const ms = agentTimings['Typography_B'].end - agentTimings['Typography_B'].start;
-        agentLog('typography', `[${jobId}] Typography Agent B COMPLETED  duration=${(ms / 1000).toFixed(2)}s`);
-        return out;
-      })(),
-
-      // Typography Candidate C: Minimalist / Compact
-      (async () => {
-        agentTimings['Typography_C'] = { start: Date.now() };
-        agentLog('typography', `[${jobId}] Typography Agent C (Minimal) STARTED`);
-        const out = await runTypographyAgent(selectedConcept, availableFonts, 'Focus on minimal, clean structure with balanced weights and compact alignment. Choose a simple, readable combination.');
-        agentTimings['Typography_C'].end = Date.now();
-        const ms = agentTimings['Typography_C'].end - agentTimings['Typography_C'].start;
-        agentLog('typography', `[${jobId}] Typography Agent C COMPLETED  duration=${(ms / 1000).toFixed(2)}s`);
+        agentTimings['Typography'] = { start: Date.now() };
+        agentLog('typography', `[${jobId}] Typography Agent STARTED`);
+        const out = await runTypographyAgent(
+          { communicationArchetype: selectedStrategy.visualTone } as any,
+          availableFonts,
+          `Design tone: ${selectedStrategy.visualTone}. Emotional goal: ${selectedStrategy.emotionalGoal}. Strategy: ${selectedStrategy.recommendedStrategy}.`
+        );
+        agentTimings['Typography'].end = Date.now();
+        const ms = agentTimings['Typography'].end - agentTimings['Typography'].start;
+        agentLog('typography', `[${jobId}] Typography COMPLETED duration=${(ms / 1000).toFixed(2)}s`);
+        pipelineLog(`AGENT_COMPLETE agent=Typography job_id=${jobId} duration=${ms}ms`);
         return out;
       })(),
     ]);
@@ -162,251 +169,161 @@ export async function generateInitialLayout(
     pipelineLog(`PARALLEL_DONE job_id=${jobId}`);
 
     db.prepare('UPDATE jobs SET status = ?, updated_at = ? WHERE id = ?')
-      .run('layout', new Date().toISOString(), jobId);
+      .run('evolving', new Date().toISOString(), jobId);
 
-    // ── STAGE 4: Multi-Layout Candidate Generation & Score Audit ──────────────
-    agentTimings['Layout'] = { start: Date.now() };
-    agentLog('layout', `[${jobId}] Generating 3 distinct Layout candidates...`);
+    // ── STAGE 4: Evolutionary Layout Search ───────────────────────────────────
+    agentTimings['Evolution'] = { start: Date.now() };
+    agentLog('layout', `[${jobId}] Evolutionary Search STARTED`);
 
-    const [layoutA, layoutB, layoutC] = await Promise.all([
-      runLayoutAgent({ vision, copy, typography: typographyA, rulesText, memoryExamples: memoryRecords }).catch(() => null),
-      runLayoutAgent({ vision, copy, typography: typographyB, rulesText, memoryExamples: memoryRecords }).catch(() => null),
-      runLayoutAgent({ vision, copy, typography: typographyC, rulesText, memoryExamples: memoryRecords }).catch(() => null),
-    ]);
+    // Format design objectives as a string for the layout agent
+    const objectivesText = (selectedStrategy.designObjectives || [])
+      .sort((a: any, b: any) => a.priority - b.priority)
+      .map((o: any) => `[P${o.priority}] ${o.objective}: ${o.reasoning}`)
+      .join('\n');
 
-    agentTimings['Layout'].end = Date.now();
-    const layoutMs = agentTimings['Layout'].end - agentTimings['Layout'].start;
-    pipelineLog(`AGENT_COMPLETE agent=Layout job_id=${jobId} duration=${layoutMs}ms`);
+    const recommendedStrat = selectedStrategy.recommendedStrategy || 'hero-overlay';
 
-    // Score all candidates using the deterministic constraint validator
-    const candidates = [
-      { typography: typographyA, layout: layoutA, label: 'A (Bold)' },
-      { typography: typographyB, layout: layoutB, label: 'B (Editorial)' },
-      { typography: typographyC, layout: layoutC, label: 'C (Minimal)' },
-    ].filter(c => c.layout !== null) as Array<{ typography: TypographyTokens; layout: LayoutOutput; label: string }>;
-
-    if (candidates.length === 0) {
-      throw new Error('Layout Agent: All 3 layout candidate generations failed.');
-    }
-
-    const scores = candidates.map(c => {
-      const report = validateLayout(c.layout, vision.faceRegions, vision.productRegions, c.typography);
-      return { ...c, score: report.score };
+    const evolutionResult: EvolutionResult = await runEvolutionarySearch({
+      jobId,
+      vision,
+      copy,
+      typography,
+      designObjectives: objectivesText,
+      recommendedStrategy: recommendedStrat,
+      imageBase64,
+      mimeType,
+      hasLogo: false, // TODO: wire to actual logo upload state
+      maxGenerations: 3,
     });
 
-    // Pick the candidate with the highest validation score
-    scores.sort((a, b) => b.score - a.score);
-    const winner = scores[0];
+    agentTimings['Evolution'].end = Date.now();
+    const evolMs = agentTimings['Evolution'].end - agentTimings['Evolution'].start;
+    agentLog('layout', `[${jobId}] Evolutionary Search COMPLETED duration=${(evolMs / 1000).toFixed(2)}s best_score=${evolutionResult.bestScore} generations=${evolutionResult.totalGenerations} candidates=${evolutionResult.totalCandidatesEvaluated}`);
+    pipelineLog(`AGENT_COMPLETE agent=Evolution job_id=${jobId} duration=${evolMs}ms best_score=${evolutionResult.bestScore}`);
 
-    agentLog('layout', `[${jobId}] Selected winning design: ${winner.label} with constraint score ${winner.score}/100`);
-    console.log(`Multi-Design Exploration selected candidate: ${winner.label} (score: ${winner.score})`);
+    const winner = evolutionResult.bestLayout;
 
-    const typography = winner.typography;
-    const layout = winner.layout;
+    // ── STAGE 5: HTML Composition (deterministic, no LLM) ─────────────────────
+    const imageDataUrl = `data:${mimeType};base64,${imageBase64}`;
+    const html = composeHTML({
+      layout: winner,
+      typography,
+      copy,
+      imageBase64: imageDataUrl,
+      logoUrl: null,
+      canvasWidth: 1080,
+      canvasHeight: 1080,
+    });
 
+    agentLog('composer', `[${jobId}] HTML composed: ${html.length} bytes, strategy=${winner.strategy}`);
+
+    // ── Save to database ──────────────────────────────────────────────────────
     db.prepare('UPDATE jobs SET status = ?, final_layout_json = ?, updated_at = ? WHERE id = ?')
-      .run('layout_rendering', JSON.stringify(layout), new Date().toISOString(), jobId);
-
-    // Keep active database typography updated for this job
-    db.prepare('UPDATE jobs SET final_layout_json = ?, updated_at = ? WHERE id = ?')
-      .run(JSON.stringify({ layout, typography }), new Date().toISOString(), jobId);
+      .run('layout_rendering', JSON.stringify({ layout: winner, typography, strategy: selectedStrategy, evolution: { bestScore: evolutionResult.bestScore, generations: evolutionResult.totalGenerations, candidates: evolutionResult.totalCandidatesEvaluated } }), new Date().toISOString(), jobId);
 
     const totalMs = Date.now() - pipelineStart;
     pipelineLog(`JOB_INITIAL_DONE job_id=${jobId} total_duration=${totalMs}ms`);
 
-    // Save dependency-graph style job replay JSON
+    // Save replay log
     saveJobReplay(jobId, {
       intent,
       imageName,
       agents: {
         Vision: { duration: agentTimings['Vision'].end! - agentTimings['Vision'].start, depends_on: [] },
-        CreativeDirector: { duration: agentTimings['CreativeDirector'].end! - agentTimings['CreativeDirector'].start, depends_on: ['Vision'] },
-        Typography: { duration: agentTimings['Typography_A'].end! - agentTimings['Typography_A'].start, depends_on: ['Vision'] },
-        Copywriter: { duration: (agentTimings['Copywriter']?.end && agentTimings['Copywriter']?.start ? agentTimings['Copywriter'].end - agentTimings['Copywriter'].start : 0), depends_on: ['CreativeDirector'] },
-        Layout: { duration: layoutMs, depends_on: ['Copywriter', 'Typography', 'Vision', 'Memory'] },
+        DesignStrategist: { duration: agentTimings['DesignStrategist'].end! - agentTimings['DesignStrategist'].start, depends_on: ['Vision'] },
+        Copywriter: { duration: agentTimings['Copywriter'].end! - agentTimings['Copywriter'].start, depends_on: ['DesignStrategist'] },
+        Typography: { duration: agentTimings['Typography'].end! - agentTimings['Typography'].start, depends_on: ['DesignStrategist'] },
+        Evolution: { duration: evolMs, depends_on: ['Copywriter', 'Typography', 'Vision'] },
       },
-      outputs: { vision, concept: selectedConcept, copy, typography, layout },
+      outputs: { vision, strategy: selectedStrategy, copy, typography, layout: winner, evolution: { bestScore: evolutionResult.bestScore, scoreHistory: evolutionResult.scoreHistory } },
     });
 
     writePerformanceStats(agentTimings);
 
-    return { jobId, vision, concept: selectedConcept, copy, typography, layout };
+    return {
+      jobId,
+      vision,
+      strategy: selectedStrategy,
+      copy,
+      typography,
+      layout: winner,
+      html,
+      evolution: {
+        totalGenerations: evolutionResult.totalGenerations,
+        totalCandidatesEvaluated: evolutionResult.totalCandidatesEvaluated,
+        scoreHistory: evolutionResult.scoreHistory,
+        bestScore: evolutionResult.bestScore,
+      },
+    };
 
   } catch (error: any) {
     db.prepare('UPDATE jobs SET status = ?, updated_at = ? WHERE id = ?')
       .run('failed', new Date().toISOString(), jobId);
     pipelineLog(`JOB_FAILED job_id=${jobId} error="${error.message || error}"`);
-    console.error(`Orchestrator failed during generation for Job ${jobId}:`, error);
+    console.error(`Orchestrator failed for Job ${jobId}:`, error);
     throw error;
   }
 }
+
+// ── Critique (post-generation evaluation — kept for UI scoring) ──────────────
 
 export interface CritiqueRepairResult {
   score: number;
   issues: string[];
   fixes: string[];
-  repairedLayout: LayoutOutput | null;
-  categoryScores?: Record<string, number>;
+  repairedLayout: WebLayoutOutput | null;
   status: 'completed' | 'repaired' | 'failed';
   bestScore: number;
   iterationsRun: number;
 }
 
-const MAX_LOOPS = 10;
-const EARLY_STOP_MIN_IMPROVEMENT = 2; // stop if < 2 points gained for 2 consecutive iterations
-const TARGET_SCORE = 90;
-
-/**
- * Critique + Repair loop with Best-State Preservation.
- *
- * Algorithm:
- *   best_layout = initial_layout
- *   best_score  = initial_score
- *   for up to MAX_LOOPS:
- *     critique(best_layout)
- *     if score >= TARGET_SCORE → done
- *     generate 3 repair candidates
- *     validate each with constraint engine
- *     if any candidate > best_score → update best
- *     else count consecutive no-improvement → early stop after 2
- */
 export async function processCritiqueAndRepair(
   jobId: string,
   iteration: number,
-  layout: LayoutOutput,
+  layout: WebLayoutOutput,
   screenshotBase64: string,
   vision: VisionAnalysis
 ): Promise<CritiqueRepairResult> {
-  const iterStart = Date.now();
-
   try {
-    const activeConst = db.prepare('SELECT rules_text FROM constitutions WHERE active = 1 ORDER BY version DESC LIMIT 1').get() as { rules_text: string };
+    const activeConst = db.prepare('SELECT rules_text FROM constitutions WHERE active = 1 ORDER BY version DESC LIMIT 1').get() as { rules_text: string } | undefined;
     const rulesText = activeConst?.rules_text || '';
 
-    // ── CRITIQUE: Python geometry + Gemini Critic in parallel ─────────────────
     pipelineLog(`CRITIQUE_START job_id=${jobId} iteration=${iteration}`);
-    agentLog('critic', `[${jobId}] Critic Agent STARTED  iteration=${iteration}`);
-    const criticStart = Date.now();
+    agentLog('critic', `[${jobId}] Critic Agent STARTED iteration=${iteration}`);
 
-    const [geomResult, criticResult] = await Promise.all([
-      runGeometryHelper({
-        elements: layout.elements,
-        faceRegions: vision.faceRegions,
-        productRegions: vision.productRegions,
-        margins: 8.0,
-      }),
-      runCriticAgent({ screenshotBase64, layout, rulesText }),
-    ]);
+    const criticResult = await runCriticAgent({
+      screenshotBase64,
+      layout: { elements: [], reasoning: { whyPositions: '', whyLogoPosition: '', whyCTAPosition: '', whyAlignment: '', whyHierarchy: '' } },
+      rulesText,
+    });
 
-    const criticMs = Date.now() - criticStart;
-    agentLog('critic', `[${jobId}] Critic DONE  ${criticMs}ms  overall=${criticResult.score}`);
+    pipelineLog(`CRITIQUE_DONE job_id=${jobId} iteration=${iteration} score=${criticResult.score}`);
 
-    // Merge geometry and visual critic scores — geometry is a hard floor
-    const combinedScore = Math.min(geomResult.score, criticResult.score);
-    const combinedIssues = Array.from(new Set([...geomResult.issues, ...criticResult.issues]));
-    const combinedFixes  = Array.from(new Set([...geomResult.fixes,  ...criticResult.fixes]));
-    // Spread criticResult first (brings category scores), then override core fields with merged values
-    const critiqueOutput: CriticOutput = {
-      ...criticResult,
-      score: combinedScore,
-      issues: combinedIssues,
-      fixes: combinedFixes,
-    };
-
-    pipelineLog(`CRITIQUE_DONE job_id=${jobId} iteration=${iteration} score=${combinedScore} duration=${criticMs}ms`);
-
-    // ── Save critique to history ──────────────────────────────────────────────
+    // Save critique to history
     db.prepare(`
       INSERT INTO critique_history (job_id, iteration, score, issues_json, fixes_json, layout_json, screenshot_path, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(jobId, iteration, combinedScore, JSON.stringify(combinedIssues), JSON.stringify(combinedFixes), JSON.stringify(layout), null, new Date().toISOString());
+    `).run(jobId, iteration, criticResult.score, JSON.stringify(criticResult.issues), JSON.stringify(criticResult.fixes), JSON.stringify(layout), null, new Date().toISOString());
 
-    // ── If score already passes, no repair needed ─────────────────────────────
-    if (combinedScore >= TARGET_SCORE) {
-      saveBestToMemory(jobId, layout, combinedScore, vision);
-      return {
-        score: combinedScore,
-        issues: combinedIssues,
-        fixes: combinedFixes,
-        categoryScores: buildCategoryMap(criticResult),
-        repairedLayout: null,
-        status: 'completed',
-        bestScore: combinedScore,
-        iterationsRun: iteration,
-      };
+    if (criticResult.score >= 90) {
+      saveBestToMemory(jobId, layout, criticResult.score, vision);
     }
-
-    // ── REPAIR: Generate 3 candidates, validate each, keep best ──────────────
-    agentLog('repair', `[${jobId}] Repair Agent STARTED  iteration=${iteration} score=${combinedScore}`);
-    const repairStart = Date.now();
-
-    // Run 3 repair candidates in parallel
-    const repairResults = await Promise.all(
-      [1, 2, 3].map(() =>
-        runRepairAgent({
-          layout,
-          critique: critiqueOutput,
-          rulesText,
-          vision: { faceRegions: vision.faceRegions, productRegions: vision.productRegions, safeTextRegions: vision.safeTextRegions },
-        }).catch(() => null)
-      )
-    );
-
-    const repairMs = Date.now() - repairStart;
-    agentLog('repair', `[${jobId}] Repair Agent DONE  ${repairMs}ms  candidates=${repairResults.filter(Boolean).length}`);
-    pipelineLog(`AGENT_COMPLETE agent=Repair job_id=${jobId} iteration=${iteration} duration=${repairMs}ms`);
-
-    // Score each repair candidate with constraint validator
-    let bestRepair: LayoutOutput | null = null;
-    let bestRepairScore = combinedScore; // must beat current score to be accepted
-
-    for (const r of repairResults) {
-      if (!r) continue;
-      const report = validateLayout(r.layout, vision.faceRegions, vision.productRegions);
-      // Weighted: constraint score counts for 40%, critic score proxy for 60%
-      // We use constraint score as a proxy since we can't re-run Gemini per candidate
-      const candidateScore = report.score;
-      if (candidateScore > bestRepairScore) {
-        bestRepairScore = candidateScore;
-        bestRepair = r.layout;
-      }
-    }
-
-    const accepted = bestRepair !== null;
-    const finalLayout = bestRepair || layout; // NEVER downgrade — keep original if all repairs worse
-    const finalScore  = accepted ? bestRepairScore : combinedScore;
-
-    if (accepted) {
-      pipelineLog(`REPAIR_ACCEPTED job_id=${jobId} iteration=${iteration} score=${finalScore} (was ${combinedScore})`);
-    } else {
-      pipelineLog(`REPAIR_REJECTED job_id=${jobId} iteration=${iteration} — all candidates scored <= current, keeping best`);
-    }
-
-    // Index to memory if score is high enough
-    if (finalScore >= TARGET_SCORE) {
-      saveBestToMemory(jobId, finalLayout, finalScore, vision);
-    }
-
-    const iterMs = Date.now() - iterStart;
-    pipelineLog(`CRITIQUE_ITER_DONE job_id=${jobId} iteration=${iteration} finalScore=${finalScore} duration=${iterMs}ms`);
 
     return {
-      score: combinedScore,       // score BEFORE repair (for UI display)
-      issues: combinedIssues,
-      fixes: combinedFixes,
-      categoryScores: buildCategoryMap(criticResult),
-      repairedLayout: accepted ? finalLayout : null,
-      status: accepted ? 'repaired' : 'completed',
-      bestScore: finalScore,
+      score: criticResult.score,
+      issues: criticResult.issues,
+      fixes: criticResult.fixes,
+      repairedLayout: null,
+      status: 'completed',
+      bestScore: criticResult.score,
       iterationsRun: iteration,
     };
 
   } catch (error: any) {
-    pipelineLog(`CRITIQUE_FAILED job_id=${jobId} iteration=${iteration} error="${error.message || error}"`);
-    console.error(`Orchestrator critique fail for Job ${jobId}:`, error);
+    console.error(`Critique failed for Job ${jobId}:`, error);
     return {
       score: 0,
-      issues: [`Critique loop error: ${error.message || error}`],
+      issues: [error.message],
       fixes: [],
       repairedLayout: null,
       status: 'failed',
@@ -416,50 +333,37 @@ export async function processCritiqueAndRepair(
   }
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Memory ──────────────────────────────────────────────────────────────────
 
-function saveBestToMemory(jobId: string, layout: LayoutOutput, score: number, vision: VisionAnalysis) {
-  const style = vision.designStyleClassification || 'minimal';
-  const imageType = vision.productRegions.length > 0 ? vision.productRegions[0].label || 'product' : 'general';
+function saveBestToMemory(jobId: string, layout: WebLayoutOutput, score: number, vision: VisionAnalysis) {
+  try {
+    const visualGenome = JSON.stringify({
+      subjectCount: vision.subjectCount,
+      negativeSpaceRatio: vision.negativeSpaceRatio,
+      visualComplexity: vision.visualComplexity,
+      subjectDominance: vision.subjectDominance,
+      compositionType: vision.compositionType,
+      imageContrast: vision.imageContrast,
+    });
 
-  // Retrieve current typography from database so it's not lost when updating final_layout_json
-  let typography: any = null;
-  const jobRow = db.prepare('SELECT final_layout_json FROM jobs WHERE id = ?').get(jobId) as { final_layout_json: string } | undefined;
-  if (jobRow?.final_layout_json) {
-    try {
-      const parsed = JSON.parse(jobRow.final_layout_json);
-      typography = parsed.typography;
-    } catch (e) {
-      console.error('Failed to parse typography in saveBestToMemory:', e);
-    }
+    const commGenome = JSON.stringify({
+      layoutStrategy: layout.strategy,
+      spacing: layout.designTokens.spacing,
+    });
+
+    const decisionsJson = JSON.stringify({
+      strategy: layout.strategy,
+      reasoning: layout.reasoning,
+      designTokens: layout.designTokens,
+    });
+
+    db.prepare(`
+      INSERT INTO layout_memory (job_id, visual_genome_json, communication_genome_json, layout_json, decisions_json, score, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(jobId, visualGenome, commGenome, JSON.stringify(layout), decisionsJson, score, new Date().toISOString());
+
+    pipelineLog(`MEMORY_SAVED job_id=${jobId} score=${score} strategy=${layout.strategy}`);
+  } catch (err) {
+    console.error('Failed to save to memory:', err);
   }
-
-  db.prepare(`
-    INSERT INTO layout_memory (image_type, goal, style, headline_strategy, score, layout_json, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(imageType, 'creative_generation', style, conceptStrategy(layout), score, JSON.stringify(layout), new Date().toISOString());
-
-  db.prepare('UPDATE jobs SET status = ?, final_layout_json = ?, updated_at = ? WHERE id = ?')
-    .run('completed', JSON.stringify({ layout, typography }), new Date().toISOString(), jobId);
-  pipelineLog(`MEMORY_INDEXED job_id=${jobId} score=${score} style=${style}`);
-}
-
-function buildCategoryMap(criticResult: any): Record<string, number> {
-  return {
-    face_safety:    criticResult.face_safety    ?? 0,
-    product_safety: criticResult.product_safety ?? 0,
-    contrast:       criticResult.contrast       ?? 0,
-    hierarchy:      criticResult.hierarchy      ?? 0,
-    typography:     criticResult.typography     ?? 0,
-    composition:    criticResult.composition    ?? 0,
-    balance:        criticResult.balance        ?? 0,
-    whitespace:     criticResult.whitespace     ?? 0,
-  };
-}
-
-function conceptStrategy(layout: LayoutOutput): string {
-  const headline = layout.elements.find(e => e.type === 'headline')?.text || '';
-  if (headline.length < 15) return 'short_impact';
-  if (headline.length < 35) return 'standard_title';
-  return 'long_story';
 }

@@ -1,37 +1,33 @@
-# Design Constitution: PosterBoy Core Rules
+# Design Objectives: PosterBoy Core Principles
 
-This constitution dictates the design rules and constraints enforced by all agents.
+This constitution outlines the fundamental design objectives that guide the generation and editing of all layouts. Agents must optimize for these objectives rather than satisfying arbitrary numerical constraints.
 
 ---
 
-## Rule 1: Never Cover Faces
-- **Priority**: CRITICAL
-- **Description**: Text blocks, icons, logos, or shapes must never intersect with any detected human face region. Keep a minimum spacing of 40px from the boundary of any face region.
+## 1. Protect Visual Focal Points
+- **Objective**: Ensure that the primary subjects of the image (faces, products, hero elements) are never obscured.
+- **Guidance**: Use the vision analysis to identify high-saliency regions. Flow typography and UI elements into natural negative space, wrapping around or anchoring near the focal points without overlapping them.
 
-## Rule 2: Never Cover Primary Products
-- **Priority**: CRITICAL
-- **Description**: Text elements, CTAs, and secondary graphics must never overlap the main product region (e.g. jewellery, watches, clothing, tech gear) unless it is a design overlay requested by the prompt (e.g. a subtle background glow).
+## 2. Maximize Readability
+- **Objective**: Ensure all typography is immediately legible regardless of the background complexity.
+- **Guidance**: Rely on contrast, scrims, and shadows intelligently. If an image is noisy, introduce a subtle gradient overlay or adjust the element's placement to a quieter region. Never sacrifice legibility for style.
 
-## Rule 3: Maintain 8% Margins
-- **Priority**: HIGH
-- **Description**: All design elements must remain within a safe content boundary. Calculate margins as 8% of the canvas width and height. Do not position text blocks or primary CTAs inside the margin boundaries.
+## 3. Create Clear Hierarchy
+- **Objective**: Guide the viewer's eye sequentially through the design.
+- **Guidance**: Establish a strict typographic scale. The Headline must be the dominant typographic element, followed by the Subheadline or Body, and concluding with a clear CTA. Use size, weight, and spacing to enforce this reading order.
 
-## Rule 4: Maximum 3-4 Text Blocks
-- **Priority**: HIGH
-- **Description**: To prevent visual clutter, a single design canvas is limited to a maximum of 4 text blocks (e.g. 1 Headline, 1 Subheadline, 1 CTA, 1 Supporting Text).
+## 4. Use Whitespace Intentionally
+- **Objective**: Provide breathing room to create a premium, editorial aesthetic.
+- **Guidance**: Do not feel compelled to fill every corner of the canvas. Group related elements tightly and distance unrelated elements. Preserve large blocks of empty space to elevate the perceived value of the product or message.
 
-## Rule 5: Minimum Contrast Ratio (4.5:1)
-- **Priority**: HIGH
-- **Description**: Text elements must stand out against their underlying background region. If a text block overlaps a high-detail or high-contrast background area, it must be repositioned to an empty/background region or rendered with a background shape/glow to guarantee readability.
+## 5. Preserve Emotional Impact
+- **Objective**: Align the visual composition with the core emotional intent of the campaign.
+- **Guidance**: Consider the mood (e.g., luxury, urgent, minimal, energetic). Choose layout strategies, placements, and spacing that reinforce this tone. A luxury brand requires centered, balanced symmetry, while a dynamic sports brand benefits from asymmetric tension.
 
-## Rule 6: Respect Typography Hierarchy
-- **Priority**: HIGH
-- **Description**: Display/Headline fonts must be significantly larger than body/subheadline fonts (minimum 2.5x size ratio). Headline tracking should be tight, and body tracking should be legible.
+## 6. Create Visual Balance
+- **Objective**: Ensure the composition feels stable and anchored.
+- **Guidance**: Distribute visual weight harmoniously. If a heavy focal point exists on the right, balance it with typography on the left. Avoid layouts that feel "lopsided" or unstable.
 
-## Rule 7: Rule of Thirds Placement
-- **Priority**: MEDIUM
-- **Description**: Place primary focal text or visual anchors close to the composition's vertical or horizontal third axes. Align CTA buttons relative to text blocks to create clear, sequential reading flows.
-
-## Rule 8: Preserve Negative Space
-- **Priority**: HIGH
-- **Description**: Do not fill every empty region. A minimum of 30% of the canvas must remain clear of text and overlay elements to maintain a luxury, high-end feel.
+## 7. Reduce Unnecessary Elements
+- **Objective**: Simplify the design to its most essential components.
+- **Guidance**: When in doubt, remove. Do not add decorative elements or additional text blocks unless they directly serve the primary communication goal. Clarity is paramount.

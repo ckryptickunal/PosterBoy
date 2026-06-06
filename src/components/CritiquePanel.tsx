@@ -1,125 +1,182 @@
-import React from 'react';
-import { Eye, ShieldCheck, AlertCircle, Play, RefreshCw, Hammer } from 'lucide-react';
+'use client';
+
+import React, { useState } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { useStore } from '@/lib/store';
+import {
+  slideUp, duration, easing, springPreset,
+  staggerContainer, staggerItem,
+} from '@/lib/motion';
 
-interface CritiquePanelProps {
-  onTriggerCritique: () => void;
-  isProcessing: boolean;
-}
+export const CritiquePanel: React.FC = () => {
+  const activeJob = useStore((s) => s.activeJob);
+  const { critiqueLogs, score } = activeJob;
+  const [issuesOpen, setIssuesOpen] = useState(false);
 
-export const CritiquePanel: React.FC<CritiquePanelProps> = ({ onTriggerCritique, isProcessing }) => {
-  const activeJob = useStore((state) => state.activeJob);
-  const critiqueLogs = activeJob.critiqueLogs;
-  const currentScore = activeJob.score;
+  const latest = critiqueLogs[critiqueLogs.length - 1];
+  if (!latest && score === null) return null;
 
-  const getScoreColor = (score: number | null) => {
-    if (score === null) return 'text-zinc-600 border-zinc-800 bg-zinc-900';
-    if (score < 60) return 'text-rose-500 border-rose-900/30 bg-rose-950/10';
-    if (score < 90) return 'text-amber-500 border-amber-900/30 bg-amber-950/10';
-    return 'text-emerald-500 border-emerald-950/30 bg-emerald-950/10';
-  };
+  const displayScore = score ?? latest?.score ?? 0;
+  const scoreColor = displayScore >= 70
+    ? 'var(--status-success)'
+    : displayScore >= 50
+    ? 'var(--status-warning)'
+    : 'var(--status-error)';
 
-  // Find latest log
-  const latestCritique = critiqueLogs[critiqueLogs.length - 1];
+  // Score quality label
+  const qualityLabel = displayScore >= 80 ? 'Excellent' : displayScore >= 70 ? 'Good' : displayScore >= 50 ? 'Needs work' : 'Poor';
 
   return (
-    <div className="glass-panel rounded-xl p-4 flex flex-col h-full border border-zinc-800">
-      <div className="flex items-center justify-between border-b border-zinc-800 pb-3 mb-4">
-        <div className="flex items-center gap-2">
-          <Eye className="w-4 h-4 text-amber-500" />
-          <h2 className="font-semibold text-sm text-zinc-200">Critique & Repair Engine</h2>
-        </div>
-        
-        {activeJob.id && activeJob.status !== 'failed' && (
-          <button
-            onClick={onTriggerCritique}
-            disabled={isProcessing || activeJob.status === 'critiquing'}
-            className="flex items-center gap-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 hover:text-white font-medium text-xs px-2.5 py-1 rounded border border-zinc-700 transition disabled:opacity-50"
-          >
-            {isProcessing || activeJob.status === 'critiquing' ? (
-              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-            ) : (
-              <Play className="w-3.5 h-3.5 text-amber-400" />
-            )}
-            <span>Evaluate Screenshot</span>
-          </button>
-        )}
+    <motion.div
+      variants={slideUp}
+      initial="initial"
+      animate="animate"
+    >
+      <h3 className="font-display text-xs uppercase tracking-widest mb-4" style={{ color: 'var(--text-muted)', letterSpacing: '0.15em' }}>
+        Evaluation
+      </h3>
+
+      {/* Score display — animated with blur-in and quality label */}
+      <div className="flex items-baseline gap-3 mb-5">
+        <motion.span
+          className="font-display text-3xl"
+          style={{ color: scoreColor, fontWeight: 600 }}
+          key={displayScore}
+          initial={{ opacity: 0, scale: 0.8, filter: 'blur(6px)' }}
+          animate={{ opacity: 1, scale: 1, filter: 'blur(0px)' }}
+          transition={springPreset.bouncy}
+        >
+          {displayScore}
+        </motion.span>
+        <span className="text-sm" style={{ color: 'var(--text-ghost)' }}>/100</span>
+
+        {/* Quality badge with spring animation */}
+        <motion.span
+          className="text-xs px-2 py-0.5 rounded-full ml-auto"
+          style={{
+            background: displayScore >= 70 ? 'rgba(120, 140, 93, 0.1)' : displayScore >= 50 ? 'rgba(176, 125, 16, 0.1)' : 'rgba(196, 85, 61, 0.1)',
+            color: scoreColor,
+            border: `1px solid ${displayScore >= 70 ? 'rgba(120, 140, 93, 0.2)' : displayScore >= 50 ? 'rgba(176, 125, 16, 0.2)' : 'rgba(196, 85, 61, 0.2)'}`,
+          }}
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ delay: 0.2, ...springPreset.snappy }}
+        >
+          {qualityLabel}
+        </motion.span>
       </div>
 
-      {activeJob.id === null ? (
-        <div className="flex-1 flex flex-col items-center justify-center text-zinc-600 text-center p-4">
-          <ShieldCheck className="w-10 h-10 mb-2 stroke-1" />
-          <p className="text-xs italic">Awaiting design generation to run critique checks.</p>
-        </div>
-      ) : (
-        <div className="flex-grow flex flex-col md:flex-row gap-4 overflow-y-auto pr-1">
-          {/* Left Column: Score gauge */}
-          <div className="flex flex-col items-center justify-center md:w-1/3 border-b md:border-b-0 md:border-r border-zinc-800 pb-4 md:pb-0 md:pr-4">
-            <span className="text-[10px] uppercase font-bold tracking-wider text-zinc-500 mb-2">Design Rating</span>
-            <div className={`w-24 h-24 rounded-full border-4 flex flex-col items-center justify-center ${getScoreColor(currentScore)}`}>
-              <span className="text-3xl font-black">{currentScore !== null ? currentScore : '--'}</span>
-              <span className="text-[9px] uppercase font-semibold text-zinc-400">/ 100</span>
-            </div>
-            
-            <div className="mt-3 text-center">
-              <span className="text-[10px] text-zinc-400 font-semibold block">
-                Iteration: {activeJob.currentIteration} / 3
-              </span>
-              <span className="text-[9px] text-zinc-500">
-                {currentScore !== null && currentScore >= 90 ? 'Publishable Standard' : 'Requires Adjustment'}
-              </span>
-            </div>
-          </div>
+      {/* Score progress bar */}
+      <motion.div
+        className="w-full h-1 rounded-full mb-5 overflow-hidden"
+        style={{ background: 'var(--surface-2)' }}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 0.15, duration: duration.normal }}
+      >
+        <motion.div
+          className="h-full rounded-full"
+          style={{ background: scoreColor }}
+          initial={{ width: '0%' }}
+          animate={{ width: `${displayScore}%` }}
+          transition={{ delay: 0.3, duration: 0.8, ease: easing.out }}
+        />
+      </motion.div>
 
-          {/* Right Column: Issues and Loop History */}
-          <div className="flex-1 flex flex-col overflow-y-auto space-y-4 max-h-[200px] md:max-h-none">
-            {/* Issues */}
-            <div>
-              <h3 className="text-xs font-bold text-zinc-400 mb-2 uppercase tracking-wide">Detected Issues</h3>
-              {latestCritique && latestCritique.issues.length > 0 ? (
-                <div className="space-y-1.5">
-                  {latestCritique.issues.map((iss, index) => (
-                    <div key={index} className="flex gap-2 text-xs text-zinc-300 bg-zinc-950/40 p-2 rounded border border-zinc-900">
-                      <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
-                      <span>{iss}</span>
-                    </div>
-                  ))}
-                </div>
-              ) : currentScore !== null && currentScore >= 90 ? (
-                <div className="flex gap-2 text-xs text-emerald-400 bg-emerald-950/10 p-2 rounded border border-emerald-950/20">
-                  <ShieldCheck className="w-4 h-4 shrink-0 mt-0.5" />
-                  <span>Design matches all Design Constitution constraints successfully!</span>
-                </div>
-              ) : (
-                <div className="text-xs italic text-zinc-500">No issues detected yet. Run screenshot evaluation.</div>
-              )}
-            </div>
+      {/* Issues */}
+      {latest && latest.issues.length > 0 && (
+        <div>
+          <motion.button
+            onClick={() => setIssuesOpen(!issuesOpen)}
+            className="flex items-center gap-2 mb-2 group"
+            whileTap={{ scale: 0.98 }}
+            transition={{ duration: duration.press }}
+          >
+            <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+              {latest.issues.length} {latest.issues.length === 1 ? 'observation' : 'observations'}
+            </span>
+            <motion.svg
+              width="10" height="10" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+              style={{ color: 'var(--text-ghost)' }}
+              animate={{ rotate: issuesOpen ? 180 : 0 }}
+              transition={{ duration: duration.normal, ease: easing.out }}
+            >
+              <polyline points="6,9 12,15 18,9"/>
+            </motion.svg>
+          </motion.button>
 
-            {/* Loop History */}
-            {critiqueLogs.length > 0 && (
-              <div>
-                <h3 className="text-xs font-bold text-zinc-400 mb-2 uppercase tracking-wide">Correction Steps</h3>
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  {critiqueLogs.map((log) => (
-                    <div
-                      key={log.iteration}
-                      className={`flex items-center gap-1 text-[11px] px-2.5 py-1 rounded-full border ${
-                        log.score >= 90 
-                          ? 'bg-emerald-950/10 border-emerald-900/30 text-emerald-400' 
-                          : 'bg-zinc-900 border-zinc-800 text-zinc-400'
-                      }`}
+          <AnimatePresence>
+            {issuesOpen && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={{ duration: duration.normal, ease: easing.out }}
+                className="overflow-hidden"
+              >
+                <motion.div
+                  className="space-y-2"
+                  variants={staggerContainer}
+                  initial="initial"
+                  animate="animate"
+                >
+                  {latest.issues.map((issue, i) => (
+                    <motion.div
+                      key={i}
+                      className="flex items-start gap-2 py-1 px-2 rounded-md"
+                      variants={staggerItem}
+                      whileHover={{ backgroundColor: 'rgba(176, 125, 16, 0.04)' }}
+                      transition={{ duration: duration.micro }}
                     >
-                      <Hammer className="w-3 h-3" />
-                      <span>Loop #{log.iteration}: <strong>{log.score}</strong></span>
-                    </div>
+                      <motion.div
+                        className="w-1.5 h-1.5 rounded-full mt-1.5 shrink-0"
+                        style={{ background: 'var(--status-warning)' }}
+                        initial={{ scale: 0 }}
+                        animate={{ scale: 1 }}
+                        transition={{ delay: i * 0.05, ...springPreset.snappy }}
+                      />
+                      <p className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+                        {issue}
+                      </p>
+                    </motion.div>
                   ))}
-                </div>
-              </div>
+                </motion.div>
+
+                {latest.fixes.length > 0 && (
+                  <motion.div
+                    className="mt-4 space-y-2"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ delay: 0.2, duration: duration.normal }}
+                  >
+                    <span className="text-xs font-medium uppercase tracking-wider" style={{ color: 'var(--text-ghost)', letterSpacing: '0.08em' }}>
+                      Suggestions
+                    </span>
+                    {latest.fixes.map((fix, i) => (
+                      <motion.div
+                        key={i}
+                        className="flex items-start gap-2 py-1 px-2 rounded-md"
+                        initial={{ opacity: 0, x: -4 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: 0.3 + i * 0.06, duration: duration.normal, ease: easing.out }}
+                        whileHover={{ backgroundColor: 'rgba(120, 140, 93, 0.04)' }}
+                      >
+                        <div className="w-1.5 h-1.5 rounded-full mt-1.5 shrink-0" style={{ background: 'var(--status-success)' }} />
+                        <p className="text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+                          {fix}
+                        </p>
+                      </motion.div>
+                    ))}
+                  </motion.div>
+                )}
+              </motion.div>
             )}
-          </div>
+          </AnimatePresence>
         </div>
       )}
-    </div>
+    </motion.div>
   );
 };
+
 export default CritiquePanel;

@@ -10,10 +10,13 @@
   },
   "dependencies": {
     "@google/genai": "^2.8.0",
+    "@lottiefiles/dotlottie-react": "^0.19.4",
     "better-sqlite3": "^12.10.0",
     "html-to-image": "^1.11.13",
     "lucide-react": "^1.17.0",
+    "motion": "^12.40.0",
     "next": "16.2.7",
+    "pixelmatch": "^7.2.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "zustand": "^5.0.14"
@@ -22,6 +25,7 @@
     "@tailwindcss/postcss": "^4",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^20",
+    "@types/pixelmatch": "^5.2.6",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",

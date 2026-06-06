@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { processCritiqueAndRepair } from '@/lib/agents/orchestrator';
-import { LayoutOutput, VisionAnalysis } from '@/types/agents';
+import { WebLayoutOutput, VisionAnalysis } from '@/types/agents';
 
 export async function POST(req: NextRequest) {
   try {
@@ -8,7 +8,7 @@ export async function POST(req: NextRequest) {
     const { jobId, iteration, layout, screenshot, vision } = body as {
       jobId: string;
       iteration: number;
-      layout: LayoutOutput;
+      layout: WebLayoutOutput;
       screenshot: string;
       vision: VisionAnalysis;
     };
@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
       bestScore:      result.bestScore,
       issues:         result.issues,
       fixes:          result.fixes,
-      categoryScores: result.categoryScores ?? {},
+
       repairedLayout: result.repairedLayout,
       status:         result.status,
       iterationsRun:  result.iterationsRun,

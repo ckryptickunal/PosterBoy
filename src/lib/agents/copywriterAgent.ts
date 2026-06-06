@@ -62,7 +62,8 @@ CREATIVE CONCEPT STRATEGY (use to determine tone and style, not topic):
 - CTA Strategy: ${concept.ctaStrategy}
 
 IMAGE CONTEXT:
-- Design Style: ${vision.designStyleClassification}
+- Composition Type: ${vision.compositionType || vision.compositionStyle}
+- Visual Complexity: ${vision.visualComplexity}
 - Dominant Colors: ${vision.dominantColors.join(', ')}
 - Has Faces: ${vision.faceRegions.length > 0 ? 'Yes' : 'No'}
 - Has Products: ${vision.productRegions.length > 0 ? 'Yes' : 'No'}
