@@ -9,6 +9,7 @@ import ControlPanel from '@/components/ControlPanel';
 import Telemetry from '@/components/Telemetry';
 import CritiquePanel from '@/components/CritiquePanel';
 import ConstitutionEditor from '@/components/ConstitutionEditor';
+import { getElementRenderStyles, getElementInnerHtml } from '@/lib/rendererEngine';
 
 export default function DashboardPage() {
   const store = useStore();
@@ -78,43 +79,28 @@ export default function DashboardPage() {
 
     const typo = activeJob.typography!;
 
-    // Hard guard: never export with undefined fonts
-    const safeDisplayFont = (typo.displayFont && typo.displayFont !== 'undefined') ? typo.displayFont : 'Montserrat';
-    const safeBodyFont    = (typo.bodyFont    && typo.bodyFont    !== 'undefined') ? typo.bodyFont    : 'Inter';
-
     const elementsHtml = activeJob.layout.elements.map(elem => {
-      const isDisplay  = elem.type === 'headline';
-      // Resolve font: prefer element-level override, then typography tokens, never 'undefined'
-      const rawFont    = elem.fontFamily || (isDisplay ? safeDisplayFont : safeBodyFont);
-      const fontFamily = (!rawFont || rawFont === 'undefined') ? (isDisplay ? safeDisplayFont : safeBodyFont) : rawFont;
-      const fontSize   = elem.fontSize || (isDisplay ? typo.headlineSize : elem.type === 'subheadline' ? typo.subheadlineSize : elem.type === 'cta' ? typo.ctaSize : typo.bodySize);
-      const fontWeight = isDisplay ? typo.fontWeightDisplay : typo.fontWeightBody;
+      const style = getElementRenderStyles(elem, typo);
+      const innerHtml = getElementInnerHtml(elem, style);
 
-      if (elem.type === 'cta') {
-        return `
-    <div style="position: absolute; left: ${elem.x}%; top: ${elem.y}%; width: ${elem.width}%; height: ${elem.height}%; z-index: ${elem.zIndex}; transform: rotate(${elem.rotation}deg);">
-      <a href="#" style="display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; border-radius: 8px; font-family: '${fontFamily}', sans-serif; font-size: ${fontSize * 0.5}px; font-weight: bold; background-color: ${elem.color || '#3b82f6'}; color: white; text-decoration: none; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
-        ${elem.text}
-      </a>
-    </div>`;
-      }
-      
-      if (elem.type === 'logo') {
-        return `
-    <div style="position: absolute; left: ${elem.x}%; top: ${elem.y}%; width: ${elem.width}%; height: ${elem.height}%; z-index: ${elem.zIndex}; transform: rotate(${elem.rotation}deg); display: flex; align-items: center; justify-content: center; border: 1px dashed rgba(255,255,255,0.2); background: rgba(0,0,0,0.2); color: #ccc; font-family: sans-serif; font-size: 10px; font-weight: bold; letter-spacing: 2px;">
-      ${elem.text || 'BRAND'}
-    </div>`;
-      }
+      // Convert style object properties to inline CSS string
+      const styleString = Object.entries(style)
+        .map(([k, v]) => `${k.replace(/[A-Z]/g, m => '-' + m.toLowerCase())}: ${v}`)
+        .join('; ');
 
-      if (elem.type === 'divider') {
-        return `
-    <div style="position: absolute; left: ${elem.x}%; top: ${elem.y}%; width: ${elem.width}%; height: ${elem.height}%; z-index: ${elem.zIndex}; border-bottom: 1px solid rgba(255,255,255,0.2);"></div>`;
-      }
+      return `    <div style="${styleString}">${innerHtml}</div>`;
+    }).join('\n');
 
+    // Build dynamic @font-face rules for all user uploaded fonts
+    const fontFaceRules = store.fonts.map(f => {
+      const url = f.file_path.startsWith('http') || f.file_path.startsWith('/') ? f.file_path : `/uploads/fonts/${f.file_path}`;
+      const absoluteUrl = url.startsWith('http') ? url : `${window.location.origin}${url}`;
       return `
-    <div style="position: absolute; left: ${elem.x}%; top: ${elem.y}%; width: ${elem.width}%; height: ${elem.height}%; z-index: ${elem.zIndex}; transform: rotate(${elem.rotation}deg); font-family: '${fontFamily}', sans-serif; font-size: ${fontSize * 0.5}px; font-weight: ${fontWeight}; line-height: ${typo.lineHeight}; letter-spacing: ${typo.tracking}px; text-align: ${typo.alignment}; color: ${elem.color || '#ffffff'}; display: flex; align-items: center; justify-content: center;">
-      ${elem.text}
-    </div>`;
+    @font-face {
+      font-family: '${f.family_name || f.familyName}';
+      src: url('${absoluteUrl}') format('truetype');
+      font-display: swap;
+    }`;
     }).join('\n');
 
     const htmlContent = `<!DOCTYPE html>
@@ -122,8 +108,8 @@ export default function DashboardPage() {
 <head>
   <meta charset="utf-8">
   <title>PosterBoy Design Export</title>
-  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@300;400;500;700&family=Merriweather:ital,wght@0,300;0,400;0,700;1,300&family=Montserrat:wght@300;400;500;700;800&family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
   <style>
+    ${fontFaceRules}
     body {
       margin: 0;
       padding: 0;
@@ -135,6 +121,7 @@ export default function DashboardPage() {
     }
     .poster-container {
       position: relative;
+      container-type: inline-size;
       width: 100%;
       max-width: 600px;
       aspect-ratio: 4/5;
@@ -292,7 +279,9 @@ export default function DashboardPage() {
                     {job.final_layout_json && (
                       <button
                         onClick={() => {
-                          const parsedLayout = JSON.parse(job.final_layout_json);
+                          const parsedData = JSON.parse(job.final_layout_json);
+                          const restoredLayout = parsedData.layout ? parsedData.layout : parsedData;
+                          const restoredTypography = parsedData.typography ? parsedData.typography : null;
                           // Setup relative mock image loading
                           const imagePath = `/uploads/images/${job.image_path}`;
                           
@@ -303,7 +292,8 @@ export default function DashboardPage() {
                               id: job.id,
                               status: 'completed',
                               imageUrl: imagePath,
-                              layout: parsedLayout,
+                              layout: restoredLayout,
+                              typography: restoredTypography,
                               logs: [`[${new Date().toLocaleTimeString()}] Restored Layout Job ${job.id} from local SQLite.`]
                             }
                           });

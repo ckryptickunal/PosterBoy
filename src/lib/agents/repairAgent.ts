@@ -9,14 +9,14 @@ const RepairDeltaSchema = {
   properties: {
     changes: {
       type: 'ARRAY',
-      description: 'List of targeted coordinate adjustments. Each change modifies exactly one element property.',
+      description: 'List of targeted coordinate or color adjustments. Each change modifies exactly one element property.',
       items: {
         type: 'OBJECT',
         properties: {
           element_id:   { type: 'STRING', description: 'ID of the element being modified (e.g. "headline", "cta")' },
           field:        { type: 'STRING', description: 'Which property to change: "x", "y", "width", "height", "color", "rotation", or "zIndex"' },
-          from:         { type: 'NUMBER', description: 'Current value of the field (for audit trail)' },
-          to:           { type: 'NUMBER', description: 'New value for the field after repair' },
+          from:         { type: 'STRING', description: 'Current value of the field as a string (e.g. "12.5" or "#FF0000")' },
+          to:           { type: 'STRING', description: 'New value for the field after repair as a string (e.g. "15.0" or "#FFFFFF")' },
           reason:       { type: 'STRING', description: 'One-sentence explanation of why this change improves the design' }
         },
         required: ['element_id', 'field', 'from', 'to', 'reason']
@@ -29,8 +29,8 @@ const RepairDeltaSchema = {
 interface RepairDelta {
   element_id: string;
   field: string;
-  from: number;
-  to: number;
+  from: string;
+  to: string;
   reason: string;
 }
 
@@ -56,7 +56,21 @@ function applyDeltas(layout: LayoutOutput, changes: RepairDelta[]): LayoutOutput
     }
     const field = change.field as keyof LayoutElement;
     if (field in el) {
-      (el as any)[field] = change.to;
+      let val: any = change.to;
+      if (['x', 'y', 'width', 'height', 'rotation', 'zIndex'].includes(change.field)) {
+        val = parseFloat(change.to);
+        if (isNaN(val)) {
+          console.warn(`Repair delta: invalid numeric value "${change.to}" for field "${change.field}" — skipping`);
+          continue;
+        }
+      }
+      // Guarantee colors are valid hex strings
+      if (change.field === 'color') {
+        if (!val.startsWith('#') && /^[0-9a-fA-F]{6}$/.test(val)) {
+          val = `#${val}`;
+        }
+      }
+      (el as any)[field] = val;
     }
   }
 

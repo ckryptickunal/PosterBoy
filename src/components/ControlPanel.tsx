@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Upload, FileText, Download, ShieldCheck, Type, ArrowRight, Settings, Image as ImageIcon } from 'lucide-react';
+import { Upload, FileText, Download, ShieldCheck, Type, ArrowRight, Settings, Image as ImageIcon, Info } from 'lucide-react';
 import { useStore } from '@/lib/store';
 
 interface ControlPanelProps {
@@ -155,6 +155,36 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
               <span>{isGenerating ? 'Director Working...' : 'Run Autonomous Director'}</span>
               <ArrowRight className="w-4 h-4" />
             </button>
+
+            {store.activeJob.typography && (
+              <div className="mt-4 bg-zinc-950/60 p-3 rounded-xl border border-zinc-900 space-y-2">
+                <div className="flex items-center gap-1.5 text-[11px] font-bold text-zinc-400 uppercase tracking-wider">
+                  <Info className="w-3.5 h-3.5 text-blue-400" />
+                  <span>Typography Strategy</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="bg-zinc-900/50 p-2 rounded border border-zinc-800/40">
+                    <span className="text-[10px] text-zinc-500 block">Display Font</span>
+                    <span className="font-semibold text-zinc-200 font-mono truncate block" title={store.activeJob.typography.displayFont}>
+                      {store.activeJob.typography.displayFont}
+                    </span>
+                    <span className="text-[9px] text-zinc-500">{store.activeJob.typography.headlineSize}px, {store.activeJob.typography.fontWeightDisplay}</span>
+                  </div>
+                  <div className="bg-zinc-900/50 p-2 rounded border border-zinc-800/40">
+                    <span className="text-[10px] text-zinc-500 block">Body Font</span>
+                    <span className="font-semibold text-zinc-200 font-mono truncate block" title={store.activeJob.typography.bodyFont}>
+                      {store.activeJob.typography.bodyFont}
+                    </span>
+                    <span className="text-[9px] text-zinc-500">{store.activeJob.typography.bodySize}px, {store.activeJob.typography.fontWeightBody}</span>
+                  </div>
+                </div>
+                {store.activeJob.typography.reasoning && (
+                  <div className="text-[10px] text-zinc-400 bg-zinc-900/30 p-2 rounded border border-zinc-850 leading-relaxed max-h-[80px] overflow-y-auto">
+                    <strong>Designer Rationale:</strong> {store.activeJob.typography.reasoning}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 

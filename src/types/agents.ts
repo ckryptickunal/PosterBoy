@@ -61,6 +61,7 @@ export interface TypographyTokens {
   alignment: 'left' | 'center' | 'right';
   fontWeightDisplay: string; // e.g. "bold", "700"
   fontWeightBody: string; // e.g. "normal", "400"
+  reasoning?: string; // Explain typography decision logic
 }
 
 export interface LayoutElement {

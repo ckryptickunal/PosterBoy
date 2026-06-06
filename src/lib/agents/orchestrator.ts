@@ -109,12 +109,11 @@ export async function generateInitialLayout(
     db.prepare('UPDATE jobs SET status = ?, updated_at = ? WHERE id = ?')
       .run('copywriting', new Date().toISOString(), jobId);
 
-    // ── STAGE 3: Copywriter + Typography in parallel (both depend only on CD) ──
-    // Typography now receives the real selectedConcept — no hallucination risk.
-    pipelineLog(`PARALLEL_START job_id=${jobId} agents=[Copywriter,Typography]`);
+    // ── STAGE 3: Copywriter + 3 Typography Candidates in parallel ────────────
+    pipelineLog(`PARALLEL_START job_id=${jobId} agents=[Copywriter,Typography_A,Typography_B,Typography_C]`);
 
-    const [copy, typography] = await Promise.all([
-      // Copywriter (Agent 3) — intent is threaded through to anchor the copy
+    const [copy, typographyA, typographyB, typographyC] = await Promise.all([
+      // Copywriter (Agent 3)
       (async () => {
         agentTimings['Copywriter'] = { start: Date.now() };
         agentLog('copywriter', `[${jobId}] Copywriter STARTED`);
@@ -126,15 +125,36 @@ export async function generateInitialLayout(
         return out;
       })(),
 
-      // Typography (Agent 4) — now receives the real concept, not a speculative hint
+      // Typography Candidate A: High contrast / Bold
       (async () => {
-        agentTimings['Typography'] = { start: Date.now() };
-        agentLog('typography', `[${jobId}] Typography Agent STARTED`);
-        const out = await runTypographyAgent(selectedConcept, availableFonts);
-        agentTimings['Typography'].end = Date.now();
-        const ms = agentTimings['Typography'].end - agentTimings['Typography'].start;
-        agentLog('typography', `[${jobId}] Typography Agent COMPLETED  duration=${(ms / 1000).toFixed(2)}s`);
-        pipelineLog(`AGENT_COMPLETE agent=Typography job_id=${jobId} duration=${ms}ms`);
+        agentTimings['Typography_A'] = { start: Date.now() };
+        agentLog('typography', `[${jobId}] Typography Agent A (Bold) STARTED`);
+        const out = await runTypographyAgent(selectedConcept, availableFonts, 'Focus on high contrast, dramatic sizing, and bold weights. Choose a strong display font.');
+        agentTimings['Typography_A'].end = Date.now();
+        const ms = agentTimings['Typography_A'].end - agentTimings['Typography_A'].start;
+        agentLog('typography', `[${jobId}] Typography Agent A COMPLETED  duration=${(ms / 1000).toFixed(2)}s`);
+        return out;
+      })(),
+
+      // Typography Candidate B: Elegant Editorial
+      (async () => {
+        agentTimings['Typography_B'] = { start: Date.now() };
+        agentLog('typography', `[${jobId}] Typography Agent B (Editorial) STARTED`);
+        const out = await runTypographyAgent(selectedConcept, availableFonts, 'Focus on elegant editorial layouts with generous tracking and moderate sizes. Choose a sophisticated pairing.');
+        agentTimings['Typography_B'].end = Date.now();
+        const ms = agentTimings['Typography_B'].end - agentTimings['Typography_B'].start;
+        agentLog('typography', `[${jobId}] Typography Agent B COMPLETED  duration=${(ms / 1000).toFixed(2)}s`);
+        return out;
+      })(),
+
+      // Typography Candidate C: Minimalist / Compact
+      (async () => {
+        agentTimings['Typography_C'] = { start: Date.now() };
+        agentLog('typography', `[${jobId}] Typography Agent C (Minimal) STARTED`);
+        const out = await runTypographyAgent(selectedConcept, availableFonts, 'Focus on minimal, clean structure with balanced weights and compact alignment. Choose a simple, readable combination.');
+        agentTimings['Typography_C'].end = Date.now();
+        const ms = agentTimings['Typography_C'].end - agentTimings['Typography_C'].start;
+        agentLog('typography', `[${jobId}] Typography Agent C COMPLETED  duration=${(ms / 1000).toFixed(2)}s`);
         return out;
       })(),
     ]);
@@ -144,17 +164,52 @@ export async function generateInitialLayout(
     db.prepare('UPDATE jobs SET status = ?, updated_at = ? WHERE id = ?')
       .run('layout', new Date().toISOString(), jobId);
 
-    // ── STAGE 4: Layout (depends on everything above) ─────────────────────────
+    // ── STAGE 4: Multi-Layout Candidate Generation & Score Audit ──────────────
     agentTimings['Layout'] = { start: Date.now() };
-    agentLog('layout', `[${jobId}] Layout Agent STARTED`);
-    const layout = await runLayoutAgent({ vision, copy, typography, rulesText, memoryExamples: memoryRecords });
+    agentLog('layout', `[${jobId}] Generating 3 distinct Layout candidates...`);
+
+    const [layoutA, layoutB, layoutC] = await Promise.all([
+      runLayoutAgent({ vision, copy, typography: typographyA, rulesText, memoryExamples: memoryRecords }).catch(() => null),
+      runLayoutAgent({ vision, copy, typography: typographyB, rulesText, memoryExamples: memoryRecords }).catch(() => null),
+      runLayoutAgent({ vision, copy, typography: typographyC, rulesText, memoryExamples: memoryRecords }).catch(() => null),
+    ]);
+
     agentTimings['Layout'].end = Date.now();
     const layoutMs = agentTimings['Layout'].end - agentTimings['Layout'].start;
-    agentLog('layout', `[${jobId}] Layout Agent COMPLETED  duration=${(layoutMs / 1000).toFixed(2)}s`);
     pipelineLog(`AGENT_COMPLETE agent=Layout job_id=${jobId} duration=${layoutMs}ms`);
+
+    // Score all candidates using the deterministic constraint validator
+    const candidates = [
+      { typography: typographyA, layout: layoutA, label: 'A (Bold)' },
+      { typography: typographyB, layout: layoutB, label: 'B (Editorial)' },
+      { typography: typographyC, layout: layoutC, label: 'C (Minimal)' },
+    ].filter(c => c.layout !== null) as Array<{ typography: TypographyTokens; layout: LayoutOutput; label: string }>;
+
+    if (candidates.length === 0) {
+      throw new Error('Layout Agent: All 3 layout candidate generations failed.');
+    }
+
+    const scores = candidates.map(c => {
+      const report = validateLayout(c.layout, vision.faceRegions, vision.productRegions, c.typography);
+      return { ...c, score: report.score };
+    });
+
+    // Pick the candidate with the highest validation score
+    scores.sort((a, b) => b.score - a.score);
+    const winner = scores[0];
+
+    agentLog('layout', `[${jobId}] Selected winning design: ${winner.label} with constraint score ${winner.score}/100`);
+    console.log(`Multi-Design Exploration selected candidate: ${winner.label} (score: ${winner.score})`);
+
+    const typography = winner.typography;
+    const layout = winner.layout;
 
     db.prepare('UPDATE jobs SET status = ?, final_layout_json = ?, updated_at = ? WHERE id = ?')
       .run('layout_rendering', JSON.stringify(layout), new Date().toISOString(), jobId);
+
+    // Keep active database typography updated for this job
+    db.prepare('UPDATE jobs SET final_layout_json = ?, updated_at = ? WHERE id = ?')
+      .run(JSON.stringify({ layout, typography }), new Date().toISOString(), jobId);
 
     const totalMs = Date.now() - pipelineStart;
     pipelineLog(`JOB_INITIAL_DONE job_id=${jobId} total_duration=${totalMs}ms`);
@@ -166,9 +221,9 @@ export async function generateInitialLayout(
       agents: {
         Vision: { duration: agentTimings['Vision'].end! - agentTimings['Vision'].start, depends_on: [] },
         CreativeDirector: { duration: agentTimings['CreativeDirector'].end! - agentTimings['CreativeDirector'].start, depends_on: ['Vision'] },
-        Typography: { duration: agentTimings['Typography'].end! - agentTimings['Typography'].start, depends_on: ['Vision'] },
-        Copywriter: { duration: agentTimings['Copywriter'].end! - agentTimings['Copywriter'].start, depends_on: ['CreativeDirector'] },
-        Layout: { duration: agentTimings['Layout'].end! - agentTimings['Layout'].start, depends_on: ['Copywriter', 'Typography', 'Vision', 'Memory'] },
+        Typography: { duration: agentTimings['Typography_A'].end! - agentTimings['Typography_A'].start, depends_on: ['Vision'] },
+        Copywriter: { duration: (agentTimings['Copywriter']?.end && agentTimings['Copywriter']?.start ? agentTimings['Copywriter'].end - agentTimings['Copywriter'].start : 0), depends_on: ['CreativeDirector'] },
+        Layout: { duration: layoutMs, depends_on: ['Copywriter', 'Typography', 'Vision', 'Memory'] },
       },
       outputs: { vision, concept: selectedConcept, copy, typography, layout },
     });
@@ -366,12 +421,26 @@ export async function processCritiqueAndRepair(
 function saveBestToMemory(jobId: string, layout: LayoutOutput, score: number, vision: VisionAnalysis) {
   const style = vision.designStyleClassification || 'minimal';
   const imageType = vision.productRegions.length > 0 ? vision.productRegions[0].label || 'product' : 'general';
+
+  // Retrieve current typography from database so it's not lost when updating final_layout_json
+  let typography: any = null;
+  const jobRow = db.prepare('SELECT final_layout_json FROM jobs WHERE id = ?').get(jobId) as { final_layout_json: string } | undefined;
+  if (jobRow?.final_layout_json) {
+    try {
+      const parsed = JSON.parse(jobRow.final_layout_json);
+      typography = parsed.typography;
+    } catch (e) {
+      console.error('Failed to parse typography in saveBestToMemory:', e);
+    }
+  }
+
   db.prepare(`
     INSERT INTO layout_memory (image_type, goal, style, headline_strategy, score, layout_json, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?)
   `).run(imageType, 'creative_generation', style, conceptStrategy(layout), score, JSON.stringify(layout), new Date().toISOString());
+
   db.prepare('UPDATE jobs SET status = ?, final_layout_json = ?, updated_at = ? WHERE id = ?')
-    .run('completed', JSON.stringify(layout), new Date().toISOString(), jobId);
+    .run('completed', JSON.stringify({ layout, typography }), new Date().toISOString(), jobId);
   pipelineLog(`MEMORY_INDEXED job_id=${jobId} score=${score} style=${style}`);
 }
 
