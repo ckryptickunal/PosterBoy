@@ -1,8 +1,8 @@
 import db from '../db';
 import runWebLayoutAgent from './layoutAgent';
-import runCriticAgent from './criticAgent';
-import { runDesignEditorAgent, DeltaMemory } from './designEditorAgent';
-import { composeHTML } from '../htmlComposer';
+import runCriticAgent, { CritiqueDelta } from './criticAgent';
+import runBeautyAgent, { BeautyScore } from './beautyAgent';
+import { runDesignEditorAgent } from './designEditorAgent';
 import { pipelineLog, agentLog } from '../logger';
 import {
   VisionAnalysis,
@@ -14,11 +14,8 @@ import {
   EvolutionGeneration,
 } from '@/types/agents';
 
-// ── Constants ─────────────────────────────────────────────────────────────────
-
-const MAX_ITERATIONS = 5;
-const CONVERGENCE_SCORE = 92;
-const MIN_IMPROVEMENT = 1;
+const MAX_ITERATIONS = 25;
+const CONVERGENCE_SCORE = 90;
 
 interface LocalOptimizationParams {
   jobId: string;
@@ -30,24 +27,22 @@ interface LocalOptimizationParams {
   imageBase64: string;
   mimeType: string;
   hasLogo: boolean;
-  maxGenerations?: number;
 }
 
 export async function runLocalOptimization(params: LocalOptimizationParams): Promise<EvolutionResult> {
   const {
     jobId, vision, copy, typography, designObjectives,
     recommendedStrategy, imageBase64, mimeType, hasLogo,
-    maxGenerations = MAX_ITERATIONS,
   } = params;
 
   const scoreHistory: number[] = [];
   const generationHistory: EvolutionGeneration[] = [];
   let totalEvaluated = 0;
 
-  pipelineLog(`OPTIMIZE_START job_id=${jobId} max_iterations=${maxGenerations}`);
+  pipelineLog(`OPTIMIZE_START job_id=${jobId} loop=goal_seeking`);
 
-  // 1. Initial Layout Generation
-  agentLog('editor', `[${jobId}] Generating initial layout with strategy: ${recommendedStrategy}`);
+  // ── 1. Initial Generation ────────────────────────────────────────────────
+  agentLog('editor', `[${jobId}] Generating initial layout...`);
   let currentLayout = await runWebLayoutAgent({
     vision, copy, typography, designObjectives, recommendedStrategy, hasLogo,
   });
@@ -58,14 +53,26 @@ export async function runLocalOptimization(params: LocalOptimizationParams): Pro
   const activeConst = db.prepare('SELECT rules_text FROM constitutions WHERE active = 1 ORDER BY version DESC LIMIT 1').get() as { rules_text: string } | undefined;
   const rulesText = activeConst?.rules_text || '';
 
-  // 2. Initial Score
-  let lastCritic = await runCriticAgent({
-    screenshotBase64: imageBase64,
-    layout: currentLayout,
-    rulesText,
-  });
+  // Calculate Overall Score helper
+  const calculateOverallScore = (critic: CritiqueDelta, beauty: BeautyScore) => {
+    // overall = 0.35 readability + 0.25 hierarchy + 0.20 composition + 0.20 beauty
+    return Math.round(
+      0.35 * critic.readability +
+      0.25 * critic.hierarchy +
+      0.20 * critic.composition +
+      0.20 * beauty.beauty
+    );
+  };
+
+  // Evaluate Initial Layout
+  let currentCritic = await runCriticAgent({ screenshotBase64: imageBase64, layout: currentLayout, rulesText });
+  let currentBeauty = await runBeautyAgent({ screenshotBase64: imageBase64, vision, layout: currentLayout });
+  currentCritic.overall = calculateOverallScore(currentCritic, currentBeauty);
+  
+  let bestCritic = currentCritic;
+  
   totalEvaluated++;
-  bestScore = lastCritic.overall || lastCritic.score || 0;
+  bestScore = currentCritic.overall;
   scoreHistory.push(bestScore);
   
   generationHistory.push({
@@ -75,83 +82,98 @@ export async function runLocalOptimization(params: LocalOptimizationParams): Pro
     bestCandidateIndex: 0,
   });
 
-  agentLog('editor', `[${jobId}] Initial score: ${bestScore}`);
+  agentLog('editor', `[${jobId}] Iteration 0 → ${bestScore}`);
 
   if (bestScore >= CONVERGENCE_SCORE) {
-    agentLog('editor', `[${jobId}] Score ${bestScore} >= ${CONVERGENCE_SCORE}. Converged immediately.`);
+    agentLog('editor', `[${jobId}] Initial score >= 90. Converged immediately.`);
     return buildResult(bestLayout, bestScore, generationHistory, scoreHistory, totalEvaluated);
   }
 
-  const deltaMemory: DeltaMemory = { improved: [], regressed: [] };
+  // ── 2. Goal-Seeking Loop ──────────────────────────────────────────────────
+  let consecutiveStalls = 0;
+  let iter = 1;
 
-  // 3. Local Editor Loop
-  for (let iter = 1; iter <= maxGenerations; iter++) {
+  while (true) {
+    if (iter > MAX_ITERATIONS) {
+      agentLog('editor', `[${jobId}] Reached max iterations (${MAX_ITERATIONS}). Stopping.`);
+      break;
+    }
+
     agentLog('editor', `[${jobId}] ── Iteration ${iter} ──`);
 
+    // Editor Step
     const editorResult = await runDesignEditorAgent({
-      layout: currentLayout,
-      criticResult: lastCritic,
-      deltaMemory,
-      designObjectives
+      currentDesign: currentLayout,
+      critiqueDelta: currentCritic,
+      visionAnalysis: vision
     });
 
-    agentLog('editor', `[${jobId}] Editor modifications: ${editorResult.changeLog.join(' | ')}`);
+    agentLog('editor', `[${jobId}] Changes: ${editorResult.changeLog.join(' | ')}`);
 
-    const newLayout = editorResult.updatedLayout;
+    const candidateLayout = editorResult.updatedLayout;
     
-    // Rescore
-    const newCritic = await runCriticAgent({
-      screenshotBase64: imageBase64,
-      layout: newLayout,
-      rulesText,
-    });
+    // Evaluate Candidate
+    const candidateCritic = await runCriticAgent({ screenshotBase64: imageBase64, layout: candidateLayout, rulesText });
+    const candidateBeauty = await runBeautyAgent({ screenshotBase64: imageBase64, vision, layout: candidateLayout });
+    candidateCritic.overall = calculateOverallScore(candidateCritic, candidateBeauty);
+    
     totalEvaluated++;
-    
-    const newScore = newCritic.overall || newCritic.score || 0;
-    scoreHistory.push(newScore);
+    const candidateScore = candidateCritic.overall;
+    scoreHistory.push(candidateScore);
 
     generationHistory.push({
       generation: iter,
-      candidates: [{ layout: newLayout, score: newScore, reasoning: editorResult.reasoning, parentId: 0, mutationType: 'local_edit' }],
-      bestScore: newScore,
+      candidates: [{ layout: candidateLayout, score: candidateScore, reasoning: editorResult.reasoning, parentId: 0, mutationType: 'local_edit' }],
+      bestScore: Math.max(bestScore, candidateScore),
       bestCandidateIndex: 0,
     });
 
-    // Update Delta Memory
-    deltaMemory.improved = [];
-    deltaMemory.regressed = [];
-    for (const [key, newVal] of Object.entries(newCritic)) {
-      if (typeof newVal === 'number' && key !== 'overall' && key !== 'score') {
-        const oldVal = (lastCritic as any)[key] as number;
-        if (newVal > oldVal + 2) deltaMemory.improved.push(key);
-        else if (newVal < oldVal - 2) deltaMemory.regressed.push(key);
+    agentLog('editor', `[${jobId}] Iteration ${iter} → ${candidateScore}`);
+
+    // Regression Protection & Best State
+    if (candidateScore > bestScore) {
+      // Meaningful improvement?
+      if (candidateScore - bestScore < 1) {
+        consecutiveStalls++;
+      } else {
+        consecutiveStalls = 0;
       }
-    }
-
-    if (newScore > bestScore) {
-      bestScore = newScore;
-      bestLayout = JSON.parse(JSON.stringify(newLayout));
-      currentLayout = newLayout;
-      lastCritic = newCritic;
-      agentLog('editor', `[${jobId}] ✓ NEW BEST: ${newScore}`);
+      
+      bestScore = candidateScore;
+      bestLayout = JSON.parse(JSON.stringify(candidateLayout));
+      bestCritic = candidateCritic;
+      currentLayout = candidateLayout;
+      currentCritic = candidateCritic;
+      agentLog('editor', `[${jobId}] ✓ NEW BEST`);
     } else {
-      agentLog('editor', `[${jobId}] ✗ No improvement: ${newScore}. Reverting to best layout.`);
-      // Rollback memory and layout if we regressed
+      consecutiveStalls++;
+      agentLog('editor', `[${jobId}] ✗ Regressed or no improvement. Discarding child. Restoring Best (${bestScore}).`);
+      // Discard candidate, revert state
       currentLayout = JSON.parse(JSON.stringify(bestLayout));
+      currentCritic = bestCritic;
     }
 
+    // Stopping Conditions
     if (bestScore >= CONVERGENCE_SCORE) {
-      agentLog('editor', `[${jobId}] Score ${bestScore} >= ${CONVERGENCE_SCORE}. Converged.`);
+      agentLog('editor', `[${jobId}] Score ${bestScore} >= ${CONVERGENCE_SCORE}. Converged!`);
       break;
     }
 
-    if (iter > 1 && newScore <= bestScore) {
-      agentLog('editor', `[${jobId}] Stalled. Stopping.`);
+    if (consecutiveStalls >= 5) {
+      agentLog('editor', `[${jobId}] Improvement < 1 for 5 consecutive iterations. Stalled. Stopping.`);
       break;
     }
+
+    // Stagnation Recovery (Larger mutations)
+    if (consecutiveStalls === 3) {
+      agentLog('editor', `[${jobId}] Stagnation detected. Allowing larger mutations next iteration.`);
+      currentCritic.modify.push('layout_strategy', 'typography_scale');
+    }
+
+    iter++;
   }
 
-  pipelineLog(`OPTIMIZE_DONE job_id=${jobId} iterations=${generationHistory.length} final_score=${bestScore}`);
+  pipelineLog(`OPTIMIZE_DONE job_id=${jobId} iterations=${iter} final_score=${bestScore}`);
   return buildResult(bestLayout, bestScore, generationHistory, scoreHistory, totalEvaluated);
 }
 

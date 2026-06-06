@@ -146,30 +146,39 @@ export const Telemetry: React.FC = () => {
                 </motion.div>
               ))}
 
-              {evolution.scoreHistory.length > 1 && (
+              {evolution.scoreHistory.length > 0 && (
                 <motion.div
+                  className="w-full mt-4"
                   initial={{ opacity: 0, y: 4 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.16, duration: duration.normal, ease: easing.out }}
                 >
-                  <span className="mono text-xs" style={{ color: 'var(--text-ghost)' }}>Scores</span>
-                  <div className="flex gap-1 items-center mt-0.5">
-                    {evolution.scoreHistory.map((s: number, i: number) => (
-                      <React.Fragment key={i}>
-                        <motion.span
-                          className="mono text-xs"
-                          style={{ color: i === evolution.scoreHistory.length - 1 ? 'var(--accent)' : 'var(--text-muted)' }}
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          transition={{ delay: i * 0.1, duration: duration.micro }}
+                  <span className="mono text-xs mb-2 block" style={{ color: 'var(--text-ghost)' }}>Score Progression</span>
+                  <div className="flex flex-col gap-1.5 mt-0.5">
+                    {evolution.scoreHistory.map((s: number, i: number) => {
+                      const isLast = i === evolution.scoreHistory.length - 1;
+                      const isSuccess = s >= 90;
+                      const regressed = i > 0 && s < evolution.scoreHistory[i - 1];
+                      
+                      return (
+                        <motion.div
+                          key={i}
+                          className="flex items-center gap-2 mono text-xs"
+                          initial={{ opacity: 0, x: -4 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ delay: i * 0.05, duration: duration.micro }}
                         >
-                          {s}
-                        </motion.span>
-                        {i < evolution.scoreHistory.length - 1 && (
-                          <span className="text-xs" style={{ color: 'var(--text-ghost)' }}>→</span>
-                        )}
-                      </React.Fragment>
-                    ))}
+                          <span style={{ color: 'var(--text-muted)' }}>Iteration {i}</span>
+                          <span style={{ color: 'var(--text-ghost)' }}>→</span>
+                          <span style={{ 
+                            color: isSuccess ? 'var(--status-success)' : regressed ? 'var(--status-error)' : isLast ? 'var(--accent)' : 'var(--text-secondary)',
+                            fontWeight: isLast || isSuccess ? 600 : 400
+                          }}>
+                            {s} {isSuccess && '✓'} {regressed && '(Discarded)'}
+                          </span>
+                        </motion.div>
+                      );
+                    })}
                   </div>
                 </motion.div>
               )}

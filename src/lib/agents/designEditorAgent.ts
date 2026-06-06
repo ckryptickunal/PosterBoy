@@ -5,29 +5,26 @@
  * 
  * Given:
  *   - Current Layout
- *   - Critic Score & Feedback
- *   - Delta Memory (what improved, what regressed from last iteration)
+ *   - CritiqueDelta (strengths, weaknesses, keep, modify, priorityFixes)
+ *   - Vision Analysis
  * 
- * Responsibilities:
- *   1. Preserve everything that scored well.
- *   2. Modify only low-scoring dimensions.
- *   3. Operate on deltas, not regeneration.
+ * Rules:
+ *   1. Preserve everything inside keep[]
+ *   2. Modify only items inside modify[]
+ *   3. Apply priority fixes first
+ *   4. Do not regenerate copy
+ *   5. Do not regenerate typography unless typography is failing
+ *   6. Do not regenerate layout strategy unless score stagnates
  */
 
 import { callAgent } from './gemini';
-import { WebLayoutOutput, SectionDefinition } from '@/types/agents';
-import { CategoryCriticOutput } from './criticAgent';
-
-export interface DeltaMemory {
-  improved: string[];
-  regressed: string[];
-}
+import { WebLayoutOutput, VisionAnalysis } from '@/types/agents';
+import { CritiqueDelta } from './criticAgent';
 
 export interface DesignEditorParams {
-  layout: WebLayoutOutput;
-  criticResult: CategoryCriticOutput;
-  deltaMemory: DeltaMemory;
-  designObjectives: string;
+  currentDesign: WebLayoutOutput;
+  critiqueDelta: CritiqueDelta;
+  visionAnalysis: VisionAnalysis;
 }
 
 export interface DesignEditorResult {
@@ -42,11 +39,15 @@ const EditorSchema = {
     changeLog: {
       type: 'ARRAY',
       items: { type: 'STRING' },
-      description: 'A list of explicit local modifications made (e.g., "Moved headline from center to top-left", "Increased tracking by 0.05em")',
+      description: 'A list of explicit local modifications made (e.g., "Moved headline left to clear face", "Increased CTA contrast")',
     },
     reasoning: {
       type: 'STRING',
-      description: 'Why these specific edits were chosen to increase the score without changing successful elements',
+      description: 'Why these specific edits address the priorityFixes without breaking the keep list',
+    },
+    strategy: {
+      type: 'STRING',
+      description: 'The layout strategy to use (only change if layout_strategy is in the MODIFY list)',
     },
     sections: {
       type: 'ARRAY',
@@ -81,53 +82,46 @@ const EditorSchema = {
 };
 
 export async function runDesignEditorAgent(params: DesignEditorParams): Promise<DesignEditorResult> {
-  const { layout, criticResult, deltaMemory, designObjectives } = params;
-
-  // Identify what is working and what failed
-  const goodCategories = Object.entries(criticResult)
-    .filter(([k, v]) => typeof v === 'number' && v >= 85 && k !== 'overall' && k !== 'score')
-    .map(([k]) => k);
-  
-  const badCategories = Object.entries(criticResult)
-    .filter(([k, v]) => typeof v === 'number' && v < 85 && k !== 'overall' && k !== 'score')
-    .map(([k]) => k);
+  const { currentDesign, critiqueDelta, visionAnalysis } = params;
 
   const systemInstruction = `You are the Design Editor Agent. 
 You act like a human senior designer fixing a layout. You NEVER regenerate. You ONLY EDIT.
 
 YOUR DIRECTIVES:
-1. Preserve everything that is working. Do not change placements or styling that contribute to high-scoring metrics.
-2. Modify ONLY the dimensions that are failing. 
-3. Operate on deltas. Nudge, tweak, adjust. Do not reinvent the wheel.
-4. Adhere to the Design Objectives. Do NOT treat them as absolute numerical constraints, but as qualitative goals.
-
-CURRENT DELTA MEMORY:
-Improved since last iteration: ${deltaMemory.improved.length > 0 ? deltaMemory.improved.join(', ') : 'None yet'}
-Regressed since last iteration: ${deltaMemory.regressed.length > 0 ? deltaMemory.regressed.join(', ') : 'None yet'}
+1. Preserve everything inside the 'keep' list.
+2. Modify ONLY items inside the 'modify' list.
+3. Apply the 'priorityFixes' first.
+4. Nudge, tweak, adjust. Do not reinvent the wheel.
 
 You MUST output the FULL updated layout (all sections and tokens), maintaining the exact same IDs and roles.`;
 
   const prompt = `
-DESIGN OBJECTIVES:
-${designObjectives}
+VISION CONTEXT:
+${visionAnalysis.subjectDescription}
+Focal points: ${visionAnalysis.focalPoints.join(', ')}
 
-CRITIC EVALUATION (Overall Score: ${criticResult.overall}/100):
-Good (Do NOT modify elements driving these): ${goodCategories.join(', ')}
-Needs Fix (Edit elements driving these): ${badCategories.join(', ')}
+CRITIQUE DELTA:
+Strengths: ${critiqueDelta.strengths.join(', ')}
+Weaknesses: ${critiqueDelta.weaknesses.join(', ')}
 
-ISSUES TO FIX:
-${criticResult.issues.map(i => `- ${i}`).join('\n')}
+MANDATORY RULES:
+KEEP (Do not touch): ${critiqueDelta.keep.join(', ')}
+MODIFY (Must change): ${critiqueDelta.modify.join(', ')}
+
+PRIORITY FIXES TO APPLY NOW:
+${JSON.stringify(critiqueDelta.priorityFixes, null, 2)}
 
 CURRENT LAYOUT TO EDIT:
-Strategy: ${layout.strategy}
-Tokens: ${JSON.stringify(layout.designTokens, null, 2)}
+Strategy: ${currentDesign.strategy}
+Tokens: ${JSON.stringify(currentDesign.designTokens, null, 2)}
 Sections:
-${layout.sections.map(s => `- ID: ${s.id} | Role: ${s.role} | Placement: ${s.placement} | Overrides: ${JSON.stringify(s.cssOverrides || {})}`).join('\n')}
+${currentDesign.sections.map(s => `- ID: ${s.id} | Role: ${s.role} | Placement: ${s.placement} | Overrides: ${JSON.stringify(s.cssOverrides || {})}`).join('\n')}
 
 INSTRUCTIONS:
 Output the updated layout. 
 Keep successful elements EXACTLY AS THEY ARE.
 Only change the 'placement', 'cssOverrides', or 'designTokens' necessary to fix the issues.
+If 'layout_strategy' is in the MODIFY list, you MUST change the layout strategy to a new archetype.
   `;
 
   const response = await callAgent({
@@ -138,7 +132,7 @@ Only change the 'placement', 'cssOverrides', or 'designTokens' necessary to fix 
   }) as any;
 
   // Merge back the content and other immutable properties
-  const updatedSections = layout.sections.map(originalSection => {
+  const updatedSections = currentDesign.sections.map(originalSection => {
     const updatedSection = response.sections.find((s: any) => s.id === originalSection.id);
     if (updatedSection) {
       return {
@@ -151,14 +145,15 @@ Only change the 'placement', 'cssOverrides', or 'designTokens' necessary to fix 
   });
 
   const updatedLayout: WebLayoutOutput = {
-    ...layout,
+    ...currentDesign,
+    strategy: response.strategy || currentDesign.strategy,
     designTokens: {
-      ...layout.designTokens,
+      ...currentDesign.designTokens,
       ...response.designTokens
     },
     sections: updatedSections,
     reasoning: {
-      ...layout.reasoning,
+      ...currentDesign.reasoning,
       whyPositions: response.reasoning
     }
   };

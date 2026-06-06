@@ -1,78 +1,68 @@
 import { callAgent } from './gemini';
-import { LayoutOutput, CriticOutput } from '@/types/agents';
+import { LayoutOutput } from '@/types/agents';
 
-// ── Category-scored critic output schema ──────────────────────────────────────
-const CriticOutputSchema = {
+export interface Fix {
+  target: string;
+  action: string;
+  reason: string;
+}
+
+export interface CritiqueDelta {
+  overall: number; // Will be calculated by Orchestrator using Beauty score
+  readability: number;
+  hierarchy: number;
+  composition: number;
+  emotion: number;
+  premium_quality: number;
+  brand_fit: number;
+  contrast: number;
+  spacing: number;
+  
+  strengths: string[];
+  weaknesses: string[];
+  keep: string[];
+  modify: string[];
+  remove: string[];
+  priorityFixes: Fix[];
+}
+
+const CriticDeltaSchema = {
   type: 'OBJECT',
   properties: {
-    // Category scores
-    face_safety:    { type: 'INTEGER', description: '0-100: Are text elements clear of all face regions? 100 = fully clear.' },
-    product_safety: { type: 'INTEGER', description: '0-100: Are text elements clear of all product regions? 100 = fully clear.' },
-    contrast:       { type: 'INTEGER', description: '0-100: Is text legible against the background? 100 = excellent contrast.' },
-    hierarchy:      { type: 'INTEGER', description: '0-100: Is visual reading order clear? Headline > Subheadline > CTA?' },
-    typography:     { type: 'INTEGER', description: '0-100: Are font sizes, weights, and spacing appropriate?' },
-    composition:    { type: 'INTEGER', description: '0-100: Is the overall visual balance and layout pleasing?' },
-    balance:        { type: 'INTEGER', description: '0-100: Is visual weight distributed well across the canvas?' },
-    whitespace:     { type: 'INTEGER', description: '0-100: Is negative space used intentionally? No clutter?' },
-    overall:        { type: 'INTEGER', description: 'Weighted overall score 0-100. Scoring hierarchy: hierarchy (20%) + readability/contrast (20%) + composition (15%) + emotion (15%) + whitespace (10%) + typography (10%) + balance (10%). CONSTRAINT: If face_safety < 30 OR product_safety < 30, cap overall at 40 regardless of other scores.' },
-
-    issues: {
+    readability: { type: 'INTEGER', description: '0-100 score' },
+    hierarchy: { type: 'INTEGER', description: '0-100 score' },
+    composition: { type: 'INTEGER', description: '0-100 score' },
+    emotion: { type: 'INTEGER', description: '0-100 score' },
+    premium_quality: { type: 'INTEGER', description: '0-100 score' },
+    brand_fit: { type: 'INTEGER', description: '0-100 score' },
+    contrast: { type: 'INTEGER', description: '0-100 score' },
+    spacing: { type: 'INTEGER', description: '0-100 score' },
+    
+    strengths: { type: 'ARRAY', items: { type: 'STRING' } },
+    weaknesses: { type: 'ARRAY', items: { type: 'STRING' } },
+    keep: { type: 'ARRAY', items: { type: 'STRING' }, description: 'Elements/dimensions that MUST NOT change' },
+    modify: { type: 'ARRAY', items: { type: 'STRING' }, description: 'Elements/dimensions that MUST change' },
+    remove: { type: 'ARRAY', items: { type: 'STRING' } },
+    
+    priorityFixes: {
       type: 'ARRAY',
-      items: { type: 'STRING' },
-      description: 'Specific violations detected. Must reference element IDs and coordinates where possible.'
-    },
-    fixes: {
-      type: 'ARRAY',
-      items: { type: 'STRING' },
-      description: 'Targeted, actionable repair instructions for the Repair Agent. Each fix must name the element and the coordinate adjustment.'
-    },
-    // Design Cognition additions:
-    criticism: {
-      type: 'OBJECT',
-      properties: {
-        feelsWeak: { type: 'STRING', description: 'What elements or relationships feel weak?' },
-        feelsCrowded: { type: 'STRING', description: 'What parts of the layout feel crowded or lack breathing room?' },
-        feelsDistracting: { type: 'STRING', description: 'What elements are visually distracting or compete with the subject?' },
-        feelsUnfinished: { type: 'STRING', description: 'What feels unresolved or unfinished?' },
-        feelsUnbalanced: { type: 'STRING', description: 'What visual weights feel unbalanced?' },
-        feelsGeneric: { type: 'STRING', description: 'What looks like a generic template or lacks intention?' },
-        feelsPremium: { type: 'STRING', description: 'What elements successfully communicate a premium positioning?' }
-      },
-      required: ['feelsWeak', 'feelsCrowded', 'feelsDistracting', 'feelsUnfinished', 'feelsUnbalanced', 'feelsGeneric', 'feelsPremium']
-    },
-    aestheticScores: {
-      type: 'OBJECT',
-      properties: {
-        visualBalance: { type: 'INTEGER', description: 'Aesthetic balance score (0-100).' },
-        visualTension: { type: 'INTEGER', description: 'Aesthetic composition tension score (0-100).' },
-        hierarchyClarity: { type: 'INTEGER', description: 'Clarity of the reading hierarchy (0-100).' },
-        whitespaceQuality: { type: 'INTEGER', description: 'Quality and breathing room of negative space (0-100).' },
-        focusPreservation: { type: 'INTEGER', description: 'Preservation of the main visual subject (0-100).' },
-        brandPerception: { type: 'INTEGER', description: 'Sophistication and premium perception of the brand logo placement (0-100).' },
-        readability: { type: 'INTEGER', description: 'Aesthetic legibility and readability (0-100).' },
-        emotion: { type: 'INTEGER', description: 'Emotional impact and feeling created by design (0-100).' }
-      },
-      required: ['visualBalance', 'visualTension', 'hierarchyClarity', 'whitespaceQuality', 'focusPreservation', 'brandPerception', 'readability', 'emotion']
+      items: {
+        type: 'OBJECT',
+        properties: {
+          target: { type: 'STRING', description: 'Element ID' },
+          action: { type: 'STRING', description: 'e.g., move_left, increase_contrast' },
+          reason: { type: 'STRING' }
+        },
+        required: ['target', 'action', 'reason']
+      }
     }
   },
   required: [
-    'face_safety', 'product_safety', 'contrast', 'hierarchy',
-    'typography', 'composition', 'balance', 'whitespace', 'overall',
-    'issues', 'fixes', 'criticism', 'aestheticScores'
+    'readability', 'hierarchy', 'composition', 'emotion', 
+    'premium_quality', 'brand_fit', 'contrast', 'spacing',
+    'strengths', 'weaknesses', 'keep', 'modify', 'remove', 'priorityFixes'
   ]
 };
-
-export interface CategoryCriticOutput extends CriticOutput {
-  face_safety: number;
-  product_safety: number;
-  contrast: number;
-  hierarchy: number;
-  typography: number;
-  composition: number;
-  balance: number;
-  whitespace: number;
-  overall: number;
-}
 
 interface CriticAgentParams {
   screenshotBase64: string;
@@ -80,53 +70,31 @@ interface CriticAgentParams {
   rulesText: string;
 }
 
-/**
- * Critic Agent: Visually inspects the rendered layout and returns category-level scores.
- * Never returns "No issues detected" unless all 8 categories have been individually scored.
- */
-export async function runCriticAgent(params: CriticAgentParams): Promise<CategoryCriticOutput> {
+export async function runCriticAgent(params: CriticAgentParams): Promise<CritiqueDelta> {
   const { screenshotBase64, layout, rulesText } = params;
 
-  const systemInstruction = `You are a strict Art Director and Design Critic for an autonomous design system.
+  const systemInstruction = `You are a Delta Critic for an autonomous design system.
 
-You will receive a screenshot of a rendered poster design. You MUST score ALL eight categories independently — no category may be skipped.
+Your job is to evaluate a design and output exact DELTAS for the Design Editor Agent.
+You do NOT output a single score. You output a multi-objective matrix.
 
-SCORING PHILOSOPHY:
-Visual hierarchy is the OBJECTIVE. Collision avoidance is a CONSTRAINT.
+CRITIQUE RULES:
+1. Identify EXACTLY what is working (keep).
+2. Identify EXACTLY what is failing (modify).
+3. If an element is in 'keep', the Editor will lock it.
+4. If an element is in 'modify', the Editor will change it.
+5. Provide precise 'priorityFixes' for the worst offenders.
 
-You optimize for:
-1. Attention flow — Does the eye move naturally from headline → subheadline → CTA?
-2. Visual hierarchy — Is the headline clearly dominant? Is the reading order obvious?
-3. Readability — Can all text be read instantly against the background?
-4. Brand presence — Does the design feel intentional, professional, and premium?
-5. Emotional impact — Does the design evoke the intended feeling?
-
-You enforce constraints:
-- face_safety and product_safety: If violated (< 30), cap overall score at 40.
-- These are hard limits, not objectives. A design with perfect safety but no hierarchy scores LOW.
-
-SCORING WEIGHTS FOR OVERALL:
-- hierarchy: 20%
-- contrast/readability: 20%
-- composition: 15%
-- emotion (via aestheticScores): 15%
-- whitespace: 10%
-- typography: 10%
-- balance: 10%
-
-CONSTRAINT: If face_safety < 30 OR product_safety < 30, overall MUST NOT exceed 40.
+DESIGN OBJECTIVES TO EVALUATE AGAINST:
+${rulesText}
 
 Output strictly JSON conforming to the schema.`;
 
   const prompt = `
-CURRENT LAYOUT ELEMENT COORDINATES:
-${JSON.stringify(layout.elements, null, 2)}
+CURRENT LAYOUT ELEMENT COORDINATES/IDS:
+${JSON.stringify(layout.elements.map(e => e.id), null, 2)}
 
-DESIGN CONSTITUTION RULES:
-${rulesText}
-
-Score all 8 categories. Identify every violation. Provide precise coordinate-based repair instructions.
-`;
+Provide your Delta Critique.`;
 
   const result = await callAgent({
     prompt,
@@ -137,13 +105,12 @@ Score all 8 categories. Identify every violation. Provide precise coordinate-bas
         data: screenshotBase64.replace(/^data:image\/\w+;base64,/, '')
       }
     }],
-    responseSchema: CriticOutputSchema,
+    responseSchema: CriticDeltaSchema,
     temperature: 0.1
   });
 
-  const out = result as CategoryCriticOutput;
-  // Backfill legacy .score field from overall for downstream compatibility
-  out.score = out.overall ?? out.score ?? 0;
+  const out = result as CritiqueDelta;
+  out.overall = 0; // Will be hydrated
   return out;
 }
 
