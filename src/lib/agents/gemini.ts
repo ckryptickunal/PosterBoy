@@ -19,6 +19,10 @@ export interface AgentCallParams {
   images?: Array<{ inlineData: { mimeType: string; data: string } }>; // Base64 images for multimodal vision
   temperature?: number;
   model?: string;
+  telemetry?: {
+    pipelineRunId: string;
+    agentRunId: string;
+  };
 }
 
 /**
@@ -70,6 +74,33 @@ export async function callAgent(params: AgentCallParams): Promise<any> {
         throw new Error('Gemini API returned an empty response text.');
       }
 
+      // Record token usage if telemetry is specified
+      if (params.telemetry) {
+        try {
+          const usage = response.usageMetadata;
+          let promptTokens = usage?.promptTokenCount ?? 0;
+          let completionTokens = usage?.candidatesTokenCount ?? 0;
+
+          // Local token estimator fallback (1 token approx 4 characters)
+          if (promptTokens === 0 && completionTokens === 0) {
+            promptTokens = Math.ceil(params.prompt.length / 4) + (params.systemInstruction ? Math.ceil(params.systemInstruction.length / 4) : 0);
+            completionTokens = Math.ceil(text.length / 4);
+          }
+
+          const { db, estimateCost } = require('../telemetry');
+          const totalTokens = promptTokens + completionTokens;
+          const cost = estimateCost(model, promptTokens, completionTokens);
+          const now = new Date().toISOString();
+
+          db.prepare(`
+            INSERT INTO token_usage (pipeline_run_id, agent_run_id, model_name, prompt_tokens, completion_tokens, total_tokens, estimated_cost, timestamp)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(params.telemetry.pipelineRunId, params.telemetry.agentRunId, model, promptTokens, completionTokens, totalTokens, cost, now);
+        } catch (telemetryErr) {
+          console.error('Failed to log telemetry token usage inside callAgent:', telemetryErr);
+        }
+      }
+
       if (params.responseSchema) {
         let cleanText = text.trim();
         // Strip markdown code blocks if the model wrapped them anyway
@@ -91,6 +122,20 @@ export async function callAgent(params: AgentCallParams): Promise<any> {
     } catch (err: any) {
       lastError = err;
       console.warn(`Gemini call failed (attempt ${attempt}/3). Error: ${err.message || err}`);
+      
+      // Log retry event if telemetry available
+      if (params.telemetry) {
+        try {
+          const { recordAgentEvent } = require('../telemetry');
+          recordAgentEvent(
+            params.telemetry.pipelineRunId,
+            'Gemini Client',
+            'retry',
+            `Attempt ${attempt} failed: ${err.message || err}. Retrying...`
+          );
+        } catch (_) {}
+      }
+
       if (attempt < 3) {
         await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
       }

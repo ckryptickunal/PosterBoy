@@ -76,12 +76,20 @@ export default function DashboardPage() {
   const handleDownloadHtml = () => {
     if (!activeJob.layout || !activeJob.typography || !activeJob.imageUrl) return;
 
+    const typo = activeJob.typography!;
+
+    // Hard guard: never export with undefined fonts
+    const safeDisplayFont = (typo.displayFont && typo.displayFont !== 'undefined') ? typo.displayFont : 'Montserrat';
+    const safeBodyFont    = (typo.bodyFont    && typo.bodyFont    !== 'undefined') ? typo.bodyFont    : 'Inter';
+
     const elementsHtml = activeJob.layout.elements.map(elem => {
-      const isDisplay = elem.type === 'headline';
-      const fontFamily = elem.fontFamily || (isDisplay ? activeJob.typography!.displayFont : activeJob.typography!.bodyFont);
-      const fontSize = elem.fontSize || (isDisplay ? activeJob.typography!.headlineSize : elem.type === 'subheadline' ? activeJob.typography!.subheadlineSize : elem.type === 'cta' ? activeJob.typography!.ctaSize : activeJob.typography!.bodySize);
-      const fontWeight = isDisplay ? activeJob.typography!.fontWeightDisplay : activeJob.typography!.fontWeightBody;
-      
+      const isDisplay  = elem.type === 'headline';
+      // Resolve font: prefer element-level override, then typography tokens, never 'undefined'
+      const rawFont    = elem.fontFamily || (isDisplay ? safeDisplayFont : safeBodyFont);
+      const fontFamily = (!rawFont || rawFont === 'undefined') ? (isDisplay ? safeDisplayFont : safeBodyFont) : rawFont;
+      const fontSize   = elem.fontSize || (isDisplay ? typo.headlineSize : elem.type === 'subheadline' ? typo.subheadlineSize : elem.type === 'cta' ? typo.ctaSize : typo.bodySize);
+      const fontWeight = isDisplay ? typo.fontWeightDisplay : typo.fontWeightBody;
+
       if (elem.type === 'cta') {
         return `
     <div style="position: absolute; left: ${elem.x}%; top: ${elem.y}%; width: ${elem.width}%; height: ${elem.height}%; z-index: ${elem.zIndex}; transform: rotate(${elem.rotation}deg);">
@@ -104,7 +112,7 @@ export default function DashboardPage() {
       }
 
       return `
-    <div style="position: absolute; left: ${elem.x}%; top: ${elem.y}%; width: ${elem.width}%; height: ${elem.height}%; z-index: ${elem.zIndex}; transform: rotate(${elem.rotation}deg); font-family: '${fontFamily}', sans-serif; font-size: ${fontSize * 0.5}px; font-weight: ${fontWeight}; line-height: ${activeJob.typography!.lineHeight}; letter-spacing: ${activeJob.typography!.tracking}px; text-align: ${activeJob.typography!.alignment}; color: ${elem.color || '#ffffff'}; display: flex; align-items: center; justify-content: center;">
+    <div style="position: absolute; left: ${elem.x}%; top: ${elem.y}%; width: ${elem.width}%; height: ${elem.height}%; z-index: ${elem.zIndex}; transform: rotate(${elem.rotation}deg); font-family: '${fontFamily}', sans-serif; font-size: ${fontSize * 0.5}px; font-weight: ${fontWeight}; line-height: ${typo.lineHeight}; letter-spacing: ${typo.tracking}px; text-align: ${typo.alignment}; color: ${elem.color || '#ffffff'}; display: flex; align-items: center; justify-content: center;">
       ${elem.text}
     </div>`;
     }).join('\n');

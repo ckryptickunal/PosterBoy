@@ -83,9 +83,32 @@ export interface LayoutOutput {
 }
 
 export interface CriticOutput {
-  score: number; // 0 to 100
+  score: number; // overall 0-100 (backfilled from 'overall' category)
   issues: string[];
   fixes: string[];
+  // Category scores (present after critic overhaul)
+  face_safety?: number;
+  product_safety?: number;
+  contrast?: number;
+  hierarchy?: number;
+  typography?: number;
+  composition?: number;
+  balance?: number;
+  whitespace?: number;
+  overall?: number;
+}
+
+export interface ConstraintViolation {
+  type: 'face_overlap' | 'product_overlap' | 'margin' | 'font_undefined' | 'element_overflow';
+  elementId: string;
+  message: string;
+  severity: 'critical' | 'warning';
+}
+
+export interface ConstraintReport {
+  valid: boolean;
+  violations: ConstraintViolation[];
+  score: number; // 0-100 — deducted per violation
 }
 
 export interface DesignRule {
@@ -94,3 +117,72 @@ export interface DesignRule {
   description: string;
   priority: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
 }
+
+export interface PipelineRun {
+  id: string;
+  jobId: string;
+  startedAt: string;
+  completedAt?: string;
+  totalDurationMs: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalTokens: number;
+  totalApiCalls: number;
+  totalRetries: number;
+  totalRepairLoops: number;
+  finalScore?: number;
+  createdAt: string;
+}
+
+export interface AgentRun {
+  id: string;
+  pipelineRunId: string;
+  agentName: string;
+  modelName: string;
+  iterationNumber: number;
+  executionOrder: number;
+  startedAt: string;
+  completedAt?: string;
+  durationMs: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  estimatedCost: number;
+  retryCount: number;
+  status: 'started' | 'completed' | 'failed';
+  inputData?: string;
+  outputData?: string;
+  createdAt: string;
+}
+
+export interface TokenUsage {
+  id: number;
+  pipelineRunId: string;
+  agentRunId: string;
+  modelName: string;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  estimatedCost: number;
+  timestamp: string;
+}
+
+export interface AgentEvent {
+  id: number;
+  pipelineRunId: string;
+  agentName: string;
+  eventType: 'started' | 'completed' | 'retry' | 'failed' | 'repaired' | 'schema_error' | 'validation_error' | 'critic_feedback' | 'repair_applied' | 'memory_retrieved';
+  message: string;
+  metadata?: string;
+  timestamp: string;
+}
+
+export interface PerformanceAnalytics {
+  slowestAgent: { agentName: string; avgDurationMs: number } | null;
+  mostExpensiveAgent: { agentName: string; totalCost: number } | null;
+  highestTokenConsumer: { agentName: string; totalTokens: number } | null;
+  avgGenerationTimeMs: number;
+  avgRepairCount: number;
+  avgScoreImprovement: number;
+}
+

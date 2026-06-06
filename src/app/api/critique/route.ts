@@ -9,7 +9,7 @@ export async function POST(req: NextRequest) {
       jobId: string;
       iteration: number;
       layout: LayoutOutput;
-      screenshot: string; // Base64 string of the canvas rendering
+      screenshot: string;
       vision: VisionAnalysis;
     };
 
@@ -17,31 +17,23 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: 'Missing jobId, iteration, layout, screenshot, or vision.' }, { status: 400 });
     }
 
-    // Strip prefix from base64 if present (e.g. data:image/png;base64,)
-    let cleanScreenshot = screenshot;
-    if (screenshot.startsWith('data:image')) {
-      const parts = screenshot.split(',');
-      if (parts.length > 1) {
-        cleanScreenshot = parts[1];
-      }
-    }
+    // Strip data URI prefix if present
+    const cleanScreenshot = screenshot.startsWith('data:image')
+      ? screenshot.split(',')[1] ?? screenshot
+      : screenshot;
 
-    // Run the critique & repair loop
-    const result = await processCritiqueAndRepair(
-      jobId,
-      iteration,
-      layout,
-      cleanScreenshot,
-      vision
-    );
+    const result = await processCritiqueAndRepair(jobId, iteration, layout, cleanScreenshot, vision);
 
     return NextResponse.json({
-      success: true,
-      score: result.score,
-      issues: result.issues,
-      fixes: result.fixes,
+      success:        true,
+      score:          result.score,
+      bestScore:      result.bestScore,
+      issues:         result.issues,
+      fixes:          result.fixes,
+      categoryScores: result.categoryScores ?? {},
       repairedLayout: result.repairedLayout,
-      status: result.status
+      status:         result.status,
+      iterationsRun:  result.iterationsRun,
     });
 
   } catch (error: any) {

@@ -1,5 +1,5 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Lock, Unlock, Eye, EyeOff, Edit3, Trash2 } from 'lucide-react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { Edit3 } from 'lucide-react';
 import { LayoutElement, Region, TypographyTokens, LayoutOutput } from '@/types/agents';
 
 interface CanvasProps {
@@ -31,57 +31,26 @@ export const Canvas: React.FC<CanvasProps> = ({
   const [elementStart, setElementStart] = useState({ x: 0, y: 0, w: 0, h: 0 });
   const [editingId, setEditingId] = useState<string | null>(null);
 
+  // ─── HOOKS MUST ALL BE DECLARED BEFORE ANY EARLY RETURN ────────────────────
+
   // Compute container scale relative to 1000px design baseline
-  const updateScale = () => {
+  const updateScale = useCallback(() => {
     if (containerRef.current) {
       const width = containerRef.current.offsetWidth;
       setScale(width / 1000);
     }
-  };
+  }, []);
 
   useEffect(() => {
     updateScale();
     window.addEventListener('resize', updateScale);
     return () => window.removeEventListener('resize', updateScale);
-  }, [imageUrl]);
+  }, [imageUrl, updateScale]);
 
-  if (!imageUrl) {
-    return (
-      <div className="flex-1 min-h-[400px] border-2 border-dashed border-zinc-800 rounded-2xl flex flex-col items-center justify-center text-zinc-500 p-8">
-        <p className="text-sm italic">Please upload an image and input intent to start generating designs.</p>
-      </div>
-    );
-  }
-
-  // Drag handlers
-  const handleMouseDown = (e: React.MouseEvent, elem: LayoutElement) => {
-    // If double clicking or editing, ignore
-    if (editingId === elem.id) return;
-    e.stopPropagation();
-    setSelectedElementId(elem.id);
-
-    // Get current container bounding rect
-    if (!containerRef.current) return;
-    const rect = containerRef.current.getBoundingClientRect();
-
-    setIsDragging(true);
-    setDragStart({ x: e.clientX, y: e.clientY });
-    setElementStart({ x: elem.x, y: elem.y, w: elem.width, h: elem.height });
-  };
-
-  // Resize handler start
-  const handleResizeMouseDown = (e: React.MouseEvent, elem: LayoutElement) => {
-    e.stopPropagation();
-    e.preventDefault();
-
-    setIsResizing(true);
-    setDragStart({ x: e.clientX, y: e.clientY });
-    setElementStart({ x: elem.x, y: elem.y, w: elem.width, h: elem.height });
-  };
-
-  const handleMouseMove = (e: MouseEvent) => {
+  // Stable mouse-move/up handlers (stable refs so the effect dependency is correct)
+  const handleMouseMove = useCallback((e: MouseEvent) => {
     if (!containerRef.current || (!isDragging && !isResizing)) return;
-    
+
     const containerWidth = containerRef.current.offsetWidth;
     const containerHeight = containerRef.current.offsetHeight;
 
@@ -90,7 +59,6 @@ export const Canvas: React.FC<CanvasProps> = ({
 
     if (selectedElementId) {
       if (isDragging) {
-        // Clamp bounds 0 to 100
         const newX = Math.max(0, Math.min(100 - elementStart.w, elementStart.x + deltaX));
         const newY = Math.max(0, Math.min(100 - elementStart.h, elementStart.y + deltaY));
         onElementUpdate(selectedElementId, { x: newX, y: newY });
@@ -100,50 +68,86 @@ export const Canvas: React.FC<CanvasProps> = ({
         onElementUpdate(selectedElementId, { width: newW, height: newH });
       }
     }
-  };
+  }, [isDragging, isResizing, dragStart, elementStart, selectedElementId, onElementUpdate]);
 
-  const handleMouseUp = () => {
+  const handleMouseUp = useCallback(() => {
     setIsDragging(false);
     setIsResizing(false);
-  };
+  }, []);
 
-  // Attach global mouse listeners for smooth drag/resize even when cursor drifts off canvas
+  // Attach global mouse listeners — always registered unconditionally (no conditional hook)
   useEffect(() => {
-    if (isDragging || isResizing) {
-      window.addEventListener('mousemove', handleMouseMove);
-      window.addEventListener('mouseup', handleMouseUp);
-    }
+    if (!isDragging && !isResizing) return;
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
     return () => {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [isDragging, isResizing, dragStart, elementStart, selectedElementId]);
+  }, [isDragging, isResizing, handleMouseMove, handleMouseUp]);
 
-  const getElementStyle = (elem: LayoutElement) => {
-    return {
-      left: `${elem.x}%`,
-      top: `${elem.y}%`,
-      width: `${elem.width}%`,
-      height: `${elem.height}%`,
-      transform: `rotate(${elem.rotation || 0}deg)`,
-      zIndex: elem.zIndex || 10,
-    };
+  // ─── EARLY RETURN (safe — all hooks already called above) ──────────────────
+  if (!imageUrl) {
+    return (
+      <div className="flex-1 min-h-[400px] border-2 border-dashed border-zinc-800 rounded-2xl flex flex-col items-center justify-center text-zinc-500 p-8">
+        <p className="text-sm italic">Please upload an image and input intent to start generating designs.</p>
+      </div>
+    );
+  }
+
+  // ─── EVENT HANDLERS (plain functions — no hooks) ────────────────────────────
+
+  const handleMouseDown = (e: React.MouseEvent, elem: LayoutElement) => {
+    if (editingId === elem.id) return;
+    e.stopPropagation();
+    setSelectedElementId(elem.id);
+    if (!containerRef.current) return;
+    setIsDragging(true);
+    setDragStart({ x: e.clientX, y: e.clientY });
+    setElementStart({ x: elem.x, y: elem.y, w: elem.width, h: elem.height });
   };
+
+  const handleResizeMouseDown = (e: React.MouseEvent, elem: LayoutElement) => {
+    e.stopPropagation();
+    e.preventDefault();
+    setIsResizing(true);
+    setDragStart({ x: e.clientX, y: e.clientY });
+    setElementStart({ x: elem.x, y: elem.y, w: elem.width, h: elem.height });
+  };
+
+  const getElementStyle = (elem: LayoutElement) => ({
+    left: `${elem.x}%`,
+    top: `${elem.y}%`,
+    width: `${elem.width}%`,
+    height: `${elem.height}%`,
+    transform: `rotate(${elem.rotation || 0}deg)`,
+    zIndex: elem.zIndex || 10,
+  });
 
   const getTextStyle = (elem: LayoutElement) => {
     if (!typography) return {};
     const isDisplay = elem.type === 'headline';
+    const fontSize =
+      elem.fontSize ||
+      (isDisplay
+        ? typography.headlineSize
+        : elem.type === 'subheadline'
+        ? typography.subheadlineSize
+        : elem.type === 'cta'
+        ? typography.ctaSize
+        : typography.bodySize);
     return {
       fontFamily: elem.fontFamily || (isDisplay ? typography.displayFont : typography.bodyFont),
-      fontSize: `${(elem.fontSize || (isDisplay ? typography.headlineSize : elem.type === 'subheadline' ? typography.subheadlineSize : elem.type === 'cta' ? typography.ctaSize : typography.bodySize)) * scale}px`,
+      fontSize: `${fontSize * scale}px`,
       fontWeight: isDisplay ? typography.fontWeightDisplay : typography.fontWeightBody,
       lineHeight: typography.lineHeight || 1.2,
       letterSpacing: `${(typography.tracking || 0) * scale}px`,
-      textAlign: typography.alignment || 'left',
+      textAlign: typography.alignment || ('left' as React.CSSProperties['textAlign']),
       color: elem.color || '#ffffff',
     };
   };
 
+  // ─── RENDER ─────────────────────────────────────────────────────────────────
   return (
     <div className="relative flex-1 flex items-center justify-center p-2 bg-zinc-950 rounded-2xl overflow-hidden min-h-[500px]">
       <div
@@ -159,7 +163,7 @@ export const Canvas: React.FC<CanvasProps> = ({
           className="absolute inset-0 w-full h-full object-cover pointer-events-none select-none"
         />
 
-        {/* Region Overlays for Visualization */}
+        {/* Face Region Overlays */}
         {faceRegions.map((region, idx) => (
           <div
             key={`face-${idx}`}
@@ -168,7 +172,7 @@ export const Canvas: React.FC<CanvasProps> = ({
               left: `${region.x}%`,
               top: `${region.y}%`,
               width: `${region.width}%`,
-              height: `${region.height}%`
+              height: `${region.height}%`,
             }}
           >
             <span className="text-[9px] font-mono text-rose-400 bg-zinc-950/80 px-1 rounded border border-rose-900/40">
@@ -177,6 +181,7 @@ export const Canvas: React.FC<CanvasProps> = ({
           </div>
         ))}
 
+        {/* Product Region Overlays */}
         {productRegions.map((region, idx) => (
           <div
             key={`product-${idx}`}
@@ -185,7 +190,7 @@ export const Canvas: React.FC<CanvasProps> = ({
               left: `${region.x}%`,
               top: `${region.y}%`,
               width: `${region.width}%`,
-              height: `${region.height}%`
+              height: `${region.height}%`,
             }}
           >
             <span className="text-[9px] font-mono text-amber-400 bg-zinc-950/80 px-1 rounded border border-amber-900/40">
@@ -194,7 +199,7 @@ export const Canvas: React.FC<CanvasProps> = ({
           </div>
         ))}
 
-        {/* Elements Loop */}
+        {/* Layout Elements */}
         {layout?.elements.map((elem) => {
           const isSelected = selectedElementId === elem.id;
           const textStyle = getTextStyle(elem);
@@ -205,12 +210,12 @@ export const Canvas: React.FC<CanvasProps> = ({
               style={getElementStyle(elem)}
               onMouseDown={(e) => handleMouseDown(e, elem)}
               className={`absolute group cursor-move select-none p-1 rounded transition-shadow ${
-                isSelected 
-                  ? 'ring-2 ring-blue-500/60 shadow-lg' 
+                isSelected
+                  ? 'ring-2 ring-blue-500/60 shadow-lg'
                   : 'hover:ring-1 hover:ring-zinc-600/40'
               }`}
             >
-              {/* Render content based on element type */}
+              {/* CTA Button */}
               {elem.type === 'cta' ? (
                 <div
                   style={{
@@ -272,7 +277,7 @@ export const Canvas: React.FC<CanvasProps> = ({
                       className="bg-zinc-900 border border-zinc-700 text-white rounded p-1 w-full h-full focus:outline-none resize-none font-sans text-xs"
                     />
                   ) : (
-                    <span 
+                    <span
                       onDoubleClick={() => setEditingId(elem.id)}
                       className="w-full inline-block truncate whitespace-pre-wrap break-words"
                     >
@@ -282,26 +287,20 @@ export const Canvas: React.FC<CanvasProps> = ({
                 </div>
               )}
 
-              {/* Selection Bounds & Resize Handles */}
+              {/* Selection & Resize Handles */}
               {isSelected && (
                 <>
-                  {/* Resize Handle - Bottom Right */}
                   <div
                     onMouseDown={(e) => handleResizeMouseDown(e, elem)}
-                    className="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-blue-500 border border-white rounded-full cursor-se-resize z-50 shadow-md hover:scale-115 transition-transform"
+                    className="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-blue-500 border border-white rounded-full cursor-se-resize z-50 shadow-md hover:scale-110 transition-transform"
                   />
-                  
-                  {/* Quick Edit Overlay HUD */}
                   <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-zinc-900 text-white border border-zinc-800 text-[10px] rounded px-2 py-0.5 shadow-xl flex items-center gap-1.5 opacity-90 hover:opacity-100 transition-opacity z-50">
-                    <button 
-                      onClick={() => setEditingId(elem.id)}
-                      className="hover:text-blue-400 p-0.5"
-                    >
+                    <button onClick={() => setEditingId(elem.id)} className="hover:text-blue-400 p-0.5">
                       <Edit3 className="w-3 h-3" />
                     </button>
                     <span className="text-zinc-600">|</span>
                     <button
-                      onClick={() => onElementUpdate(elem.id, { rotation: (elem.rotation + 45) % 360 })}
+                      onClick={() => onElementUpdate(elem.id, { rotation: ((elem.rotation || 0) + 45) % 360 })}
                       className="hover:text-zinc-300 font-mono text-[9px] px-0.5"
                     >
                       R
@@ -316,4 +315,5 @@ export const Canvas: React.FC<CanvasProps> = ({
     </div>
   );
 };
+
 export default Canvas;

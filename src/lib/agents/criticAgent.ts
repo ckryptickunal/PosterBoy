@@ -1,59 +1,91 @@
 import { callAgent } from './gemini';
 import { LayoutOutput, CriticOutput } from '@/types/agents';
 
+// ── Category-scored critic output schema ──────────────────────────────────────
 const CriticOutputSchema = {
   type: 'OBJECT',
   properties: {
-    score: { type: 'INTEGER', description: 'Overall design score out of 100.' },
-    issues: { 
-      type: 'ARRAY', 
+    // Category scores
+    face_safety:    { type: 'INTEGER', description: '0-100: Are text elements clear of all face regions? 100 = fully clear.' },
+    product_safety: { type: 'INTEGER', description: '0-100: Are text elements clear of all product regions? 100 = fully clear.' },
+    contrast:       { type: 'INTEGER', description: '0-100: Is text legible against the background? 100 = excellent contrast.' },
+    hierarchy:      { type: 'INTEGER', description: '0-100: Is visual reading order clear? Headline > Subheadline > CTA?' },
+    typography:     { type: 'INTEGER', description: '0-100: Are font sizes, weights, and spacing appropriate?' },
+    composition:    { type: 'INTEGER', description: '0-100: Is the overall visual balance and layout pleasing?' },
+    balance:        { type: 'INTEGER', description: '0-100: Is visual weight distributed well across the canvas?' },
+    whitespace:     { type: 'INTEGER', description: '0-100: Is negative space used intentionally? No clutter?' },
+    overall:        { type: 'INTEGER', description: 'Weighted overall score 0-100. DO NOT average — weight face_safety and product_safety most heavily.' },
+
+    issues: {
+      type: 'ARRAY',
       items: { type: 'STRING' },
-      description: 'List of detected aesthetic or structural violations (e.g., text covers face, low contrast against background, overlap between title and cta).' 
+      description: 'Specific violations detected. Must reference element IDs and coordinates where possible.'
     },
-    fixes: { 
-      type: 'ARRAY', 
+    fixes: {
+      type: 'ARRAY',
       items: { type: 'STRING' },
-      description: 'Actionable instructions for the Repair Agent to resolve the issues (e.g., "Shift headline upwards by 10% y", "Increase CTA button width to 20%").' 
+      description: 'Targeted, actionable repair instructions for the Repair Agent. Each fix must name the element and the coordinate adjustment.'
     }
   },
-  required: ['score', 'issues', 'fixes']
+  required: [
+    'face_safety', 'product_safety', 'contrast', 'hierarchy',
+    'typography', 'composition', 'balance', 'whitespace', 'overall',
+    'issues', 'fixes'
+  ]
 };
 
+export interface CategoryCriticOutput extends CriticOutput {
+  face_safety: number;
+  product_safety: number;
+  contrast: number;
+  hierarchy: number;
+  typography: number;
+  composition: number;
+  balance: number;
+  whitespace: number;
+  overall: number;
+}
+
 interface CriticAgentParams {
-  screenshotBase64: string; // Base64 PNG image of the fully rendered design
+  screenshotBase64: string;
   layout: LayoutOutput;
   rulesText: string;
 }
 
 /**
- * Critic Agent: Visually inspects the rendered layout screenshot and lists issues.
+ * Critic Agent: Visually inspects the rendered layout and returns category-level scores.
+ * Never returns "No issues detected" unless all 8 categories have been individually scored.
  */
-export async function runCriticAgent(params: CriticAgentParams): Promise<CriticOutput> {
+export async function runCriticAgent(params: CriticAgentParams): Promise<CategoryCriticOutput> {
   const { screenshotBase64, layout, rulesText } = params;
 
-  const systemInstruction = `You are a strict, highly experienced Art Director and Design Critic.
-You are shown a screenshot of the fully rendered layout.
-Your job is to critique the layout visually based on:
-1. DESIGN CONSTITUTION: Verify if all rules are satisfied.
-2. CONTRAST: Is text readable over the background image?
-3. SPACING & MARGINS: Are elements too close to the borders? Is there clutter?
-4. COLLISION: Do text boxes overlap each other or cover the main product/faces?
-5. COMPOSITION: Is the layout visually balanced?
+  const systemInstruction = `You are a strict Art Director and Design Critic for an autonomous design system.
 
-Assign a score out of 100. Be critical:
-- If text covers faces or products, score must be below 60.
-- If text overlaps other text, score must be below 65.
-- If margins are violated or contrast is poor, deduct points.
+You will receive a screenshot of a rendered poster design. You MUST score ALL eight categories independently — no category may be skipped.
+
+SCORING RULES:
+- face_safety: If ANY text element visually overlaps a human face, score MUST be below 30.
+- product_safety: If ANY text element visually overlaps the main product, score MUST be below 30.
+- contrast: Check text readability. White text on white background = 0. High contrast = 100.
+- hierarchy: Headline must be visually dominant. CTA must be clearly clickable. Hierarchy 100 = instantly readable top-to-bottom.
+- typography: Assess font size ratios, weight differentiation, and letter spacing appropriateness.
+- composition: Assess overall visual balance, golden ratio alignment, and spatial harmony.
+- balance: Is visual weight evenly distributed, or is one corner overloaded?
+- whitespace: Is negative space intentional and generous, or cramped and cluttered?
+- overall: Weighted score — face_safety and product_safety failures drag this below 60 regardless of other scores.
+
+You MUST provide specific, coordinate-referenced fixes for the Repair Agent (e.g., "Move headline from y=72 to y=15 to clear face region at y=40-80").
+
 Output strictly JSON conforming to the schema.`;
 
   const prompt = `
-CURRENT LAYOUT COORDINATES:
+CURRENT LAYOUT ELEMENT COORDINATES:
 ${JSON.stringify(layout.elements, null, 2)}
 
 DESIGN CONSTITUTION RULES:
 ${rulesText}
 
-Evaluate the provided screenshot of this design. List all issues and suggest specific coordinates adjustments (e.g., shift up, shift down, increase size, reduce width) for the Repair Agent.
+Score all 8 categories. Identify every violation. Provide precise coordinate-based repair instructions.
 `;
 
   const result = await callAgent({
@@ -62,14 +94,17 @@ Evaluate the provided screenshot of this design. List all issues and suggest spe
     images: [{
       inlineData: {
         mimeType: 'image/png',
-        data: screenshotBase64
+        data: screenshotBase64.replace(/^data:image\/\w+;base64,/, '')
       }
     }],
     responseSchema: CriticOutputSchema,
     temperature: 0.1
   });
 
-  return result as CriticOutput;
+  const out = result as CategoryCriticOutput;
+  // Backfill legacy .score field from overall for downstream compatibility
+  out.score = out.overall ?? out.score ?? 0;
+  return out;
 }
 
 export default runCriticAgent;

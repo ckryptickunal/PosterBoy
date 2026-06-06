@@ -61,6 +61,70 @@ db.exec(`
     category TEXT NOT NULL, -- 'display' | 'body'
     created_at TEXT NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS pipeline_runs (
+    id TEXT PRIMARY KEY,
+    job_id TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    completed_at TEXT,
+    total_duration_ms INTEGER DEFAULT 0,
+    total_input_tokens INTEGER DEFAULT 0,
+    total_output_tokens INTEGER DEFAULT 0,
+    total_tokens INTEGER DEFAULT 0,
+    total_api_calls INTEGER DEFAULT 0,
+    total_retries INTEGER DEFAULT 0,
+    total_repair_loops INTEGER DEFAULT 0,
+    final_score REAL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(job_id) REFERENCES jobs(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS agent_runs (
+    id TEXT PRIMARY KEY,
+    pipeline_run_id TEXT NOT NULL,
+    agent_name TEXT NOT NULL,
+    model_name TEXT NOT NULL,
+    iteration_number INTEGER DEFAULT 1,
+    execution_order INTEGER DEFAULT 1,
+    started_at TEXT NOT NULL,
+    completed_at TEXT,
+    duration_ms INTEGER DEFAULT 0,
+    input_tokens INTEGER DEFAULT 0,
+    output_tokens INTEGER DEFAULT 0,
+    total_tokens INTEGER DEFAULT 0,
+    estimated_cost REAL DEFAULT 0.0,
+    retry_count INTEGER DEFAULT 0,
+    status TEXT NOT NULL, -- 'started', 'completed', 'failed'
+    input_data TEXT, -- JSON stringified inputs
+    output_data TEXT, -- JSON stringified outputs
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(pipeline_run_id) REFERENCES pipeline_runs(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS token_usage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pipeline_run_id TEXT NOT NULL,
+    agent_run_id TEXT NOT NULL,
+    model_name TEXT NOT NULL,
+    prompt_tokens INTEGER DEFAULT 0,
+    completion_tokens INTEGER DEFAULT 0,
+    total_tokens INTEGER DEFAULT 0,
+    estimated_cost REAL DEFAULT 0.0,
+    timestamp TEXT NOT NULL,
+    FOREIGN KEY(pipeline_run_id) REFERENCES pipeline_runs(id),
+    FOREIGN KEY(agent_run_id) REFERENCES agent_runs(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS agent_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pipeline_run_id TEXT NOT NULL,
+    agent_name TEXT NOT NULL,
+    event_type TEXT NOT NULL, -- 'started', 'completed', 'retry', 'failed', 'repaired', 'schema_error', 'critic_feedback', 'repair_applied'
+    message TEXT NOT NULL,
+    metadata TEXT, -- JSON stringified metadata
+    timestamp TEXT NOT NULL,
+    FOREIGN KEY(pipeline_run_id) REFERENCES pipeline_runs(id)
+  );
 `);
 
 // Seed default design constitution if empty

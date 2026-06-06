@@ -42,27 +42,31 @@ export async function runCreativeDirectorAgent(
   vision: VisionAnalysis
 ): Promise<CreativeDirectorOutput> {
   const systemInstruction = `You are a Senior Creative Director. Your job is to read a client's design intent, review a Vision Analysis of their background image, and propose 3 distinct creative concepts (Concept A, B, and C).
-You must evaluate each concept internally based on how it fits the image spacing (faces, products) and matches the aesthetic tone. 
-- Concept A should focus on Premium/Luxury (e.g., generous whitespace, delicate alignment).
-- Concept B should focus on Editorial/Lifestyle (e.g., text overlap boundaries, asymmetric balance).
-- Concept C should focus on Commercial/Conversion (e.g., clear CTA prominence, bold highlights).
-Score each out of 100, select the highest-scoring concept as the winner, and return the complete layout strategy.
-Output strictly JSON conforming to the schema.`;
+
+CRITICAL RULES:
+1. The USER INTENT is your creative brief. All concepts must serve that exact subject — do NOT substitute products, brands, or themes.
+2. Concept A should focus on Premium/Luxury (generous whitespace, delicate alignment).
+3. Concept B should focus on Editorial/Lifestyle (text-image tension, asymmetric balance).
+4. Concept C should focus on Commercial/Conversion (clear CTA prominence, bold highlights).
+5. Score each concept out of 100 based on fit with the image composition and user intent.
+6. Output strictly JSON conforming to the schema.`;
 
   const prompt = `
-USER INTENT: "${userIntent}"
+USER INTENT (CREATIVE BRIEF — all concepts must serve this):
+"${userIntent}"
 
-VISION ANALYSIS DETAILS:
-- Image Dimensions: ${vision.width}x${vision.height} (Aspect: ${vision.aspectRatio})
-- Classification: ${vision.designStyleClassification}
+VISION ANALYSIS:
+- Dimensions: ${vision.width}x${vision.height} (Aspect: ${vision.aspectRatio})
+- Style Classification: ${vision.designStyleClassification}
 - Dominant Colors: ${vision.dominantColors.join(', ')}
 - Composition: ${vision.compositionStyle}
 - Visual Density: ${vision.visualDensity}
-- Face Regions Count: ${vision.faceRegions.length}
-- Product Regions Count: ${vision.productRegions.length}
-- Empty Zones Count: ${vision.emptyRegions.length}
+- Face Regions: ${vision.faceRegions.length}
+- Product Regions: ${vision.productRegions.length}
+- Empty (text-safe) Zones: ${vision.emptyRegions.length}
 
-Generate 3 concepts (A, B, C), score them, and output the selected winner.
+Generate 3 concepts (A, B, C) that are all about: "${userIntent}".
+Score them, and return the selected winner.
 `;
 
   const result = await callAgent({
